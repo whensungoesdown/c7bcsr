@@ -22,11 +22,11 @@ module c7bcsr (
 
    output [31:0]                  csr_eentry,
    output [31:0]                  csr_era,
-   input  [31:0]                  ecl_csr_badv_e,
+   input  [31:0]                  ecl_csr_badv_w,
    input                          exu_ifu_except,
-   input  [5:0]                   ecl_csr_exccode_e,
-   input  [31:0]                  ifu_exu_pc_e,
-   input                          ecl_csr_ertn_e,
+   input  [5:0]                   ecl_csr_exccode_w,
+   input  [31:0]                  ifu_exu_pc_w,
+   input                          ecl_csr_ertn_w,
 
    output                         csr_ecl_crmd_ie,
    output                         csr_ecl_timer_intr,
@@ -79,7 +79,7 @@ module c7bcsr (
    
    assign crmd_ie_mux_sel_wdata_l = ~crmd_wen;
    assign crmd_ie_mux_sel_zero_l = ~exception;
-   assign crmd_ie_mux_sel_prmdpie_l = ~ecl_csr_ertn_e;
+   assign crmd_ie_mux_sel_prmdpie_l = ~ecl_csr_ertn_w;
    
    dp_mux3ds #(1) crmd_ie_mux(
       .dout   (crmd_ie_nxt),
@@ -93,7 +93,7 @@ module c7bcsr (
    dffrle_ns #(1) crmd_ie_reg (
       .din   (crmd_ie_nxt),
       .rst_l (resetn),
-      .en    (crmd_ie_msk_wen | exception | ecl_csr_ertn_e),
+      .en    (crmd_ie_msk_wen | exception | ecl_csr_ertn_w),
       .clk   (clk),
       .q     (crmd_ie));
       //.se(), .si(), .so());
@@ -122,7 +122,7 @@ module c7bcsr (
 
    assign crmd_plv_mux_sel_wdata_l = ~crmd_wen;
    assign crmd_plv_mux_sel_zero_l = ~exception;
-   assign crmd_plv_mux_sel_prmdpplv_l = ~ecl_csr_ertn_e;
+   assign crmd_plv_mux_sel_prmdpplv_l = ~ecl_csr_ertn_w;
   
    dp_mux3ds #(2) crmd_plv_mux(
       .dout   (crmd_plv_nxt),
@@ -136,7 +136,7 @@ module c7bcsr (
    dffrle_ns #(2) crmd_plv_reg (
       .din   (crmd_plv_nxt),
       .rst_l (resetn),
-      .en    (crmd_plv_msk_wen | exception | ecl_csr_ertn_e),
+      .en    (crmd_plv_msk_wen | exception | ecl_csr_ertn_w),
       .clk   (clk),
       .q     (crmd_plv));
       //.se(), .si(), .so());
@@ -222,7 +222,7 @@ module c7bcsr (
    dp_mux2es #(32) era_mux(
       .dout (era_nxt),
       .in0  (era_wdata),
-      .in1  (ifu_exu_pc_e),
+      .in1  (ifu_exu_pc_w),
       .sel  (exception));
 
    dffrle_ns #(32) era_reg (
@@ -253,7 +253,7 @@ module c7bcsr (
    dp_mux2es #(32) badv_mux(
       .dout (badv_nxt),
       .in0  (badv_wdata),
-      .in1  (ecl_csr_badv_e),
+      .in1  (ecl_csr_badv_w),
       .sel  (exception));  // illinst does not set BADV, later consider this. code review 
 
    dffrle_ns #(32) badv_reg (
@@ -470,7 +470,7 @@ module c7bcsr (
    // not control data, only for query, no need reset
    //  need reset, if there is no exception happened before, the estat contains x
    dffrle_ns #(6) estat_ecode_reg (
-      .din   (ecl_csr_exccode_e),
+      .din   (ecl_csr_exccode_w),
       .rst_l (resetn),
       .en    (exception),             // interrupt ecode is 0, handled in ecl
       .clk   (clk),
