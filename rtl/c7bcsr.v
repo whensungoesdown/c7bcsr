@@ -10,7 +10,7 @@
 //  And exception happened at _e has a higher priority, becasue it is from the elderly instruction.
 //   
 //
-module cpu7_csr(
+module c7bcsr (
    input                          clk,
    input                          resetn,
    output [31:0]                  csr_rdata,
@@ -367,7 +367,7 @@ module cpu7_csr(
    wire timer_intr;
    wire [`TIMER_BIT+2-1:0] timeval;
    
-   cpu7_csr_timer u_csr_timer(
+   c7bcsr_timer u_csr_timer(
       .clk                             (clk),
       .resetn                          (resetn),
       .init                            (tcfg_wen), // every tcfg write consider an init
