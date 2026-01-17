@@ -1,6 +1,6 @@
 `include "../defines.vh"
 
-module cpu7_csr_timer (
+module c7bcsr_timer (
    input                          clk,
    input                          resetn,
    input                          init,
