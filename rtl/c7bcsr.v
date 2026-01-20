@@ -31,7 +31,7 @@ module c7bcsr (
    output                         csr_ecl_crmd_ie,
    output                         csr_ecl_timer_intr,
 
-   input                          ext_intr
+   input                          ext_intr_sync
    );
 
 
@@ -459,7 +459,7 @@ module c7bcsr (
    assign estat_is = {
                      1'b0,        // ??
                      7'b0,        // HWI1~HWI7
-		     ext_intr,    // HWI0
+		     ext_intr_sync, // HWI0
                      ticlr_clr,   // TI
                      1'b0         // IPI
 	             };
