@@ -1,4 +1,3 @@
-`include "defines.vh"
 `include "csr_defs.v"
 
 /////

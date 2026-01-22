@@ -1,5 +1,3 @@
-`include "../defines.vh"
-
 module c7bcsr_timer (
    input                          clk,
    input                          resetn,
