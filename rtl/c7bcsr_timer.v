@@ -1,3 +1,5 @@
+`include "csr_defs.v"
+
 module c7bcsr_timer (
    input                          clk,
    input                          resetn,
