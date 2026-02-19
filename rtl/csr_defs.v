@@ -67,6 +67,7 @@
 
 // self defined
 `define LCSR_BSEC          `LCSR_BIT'h0_1_0_0 //
+`define LCSR_COMPEN        `LCSR_BIT'h0_1_0_1 //
 
 
 //// CSR
@@ -292,3 +293,5 @@
 
 // BSEC (BOOT SECURITY) 0x1_0_0
 `define LBSEC_EF       0
+
+`define LCOMPEN_IC     0

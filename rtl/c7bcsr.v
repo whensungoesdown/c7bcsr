@@ -28,6 +28,7 @@ module c7bcsr (
    input                          ecl_csr_ertn_w,
 
    output                         csr_ecl_crmd_ie,
+   output                         csr_ifu_ic_en, 
    output                         csr_ecl_timer_intr,
 
    input                          ext_intr_sync
@@ -520,11 +521,11 @@ module c7bcsr (
    assign bsec_ef_wdata = csr_wdata[`LBSEC_EF];
    assign bsec_ef_nxt = bsec_ef_wdata | bsec_ef;
    
-   dffre_ns #(1) bsec_ef_reg (
+   dffrle_ns #(1) bsec_ef_reg (
       .din (bsec_ef_nxt),
       .en  (bsec_ef_msk_wen),
       .clk (clk),
-      .rst (~resetn),
+      .rst_l (resetn),
       .q   (bsec_ef));
       //.se(), .si(), .so());
 
@@ -534,8 +535,44 @@ module c7bcsr (
                  bsec_ef
 		 };
 
+   //
+   //  SELF DEFINED: COMPEN (COMPONENT ENABLE) 0x101
+   //
+
+   wire [31:0]        compen;
+   wire [31:0]        compen_nxt;
+   wire               compen_wen;
+
+   assign compen_wen = (csr_waddr == `LCSR_COMPEN) && csr_wen;
+
+   // bit 0, icache enable
+   wire              compen_ic_msk_wen;
+   assign compen_ic_msk_wen = csr_mask[`LCOMPEN_IC] & compen_wen;
+
+   wire               compen_ic;
+   wire               compen_ic_wdata;
+   wire               compen_ic_nxt;
+
+   assign compen_ic_wdata = csr_wdata[`LCOMPEN_IC];
+   assign compen_ic_nxt = compen_ic_wdata | compen_ic;
    
+   dffrle_ns #(1) compen_ic_reg (
+      .din (compen_ic_nxt),
+      .en  (compen_ic_msk_wen),
+      .clk (clk),
+      .rst_l (resetn),
+      .q   (compen_ic));
+
+   
+   assign compen = {
+		 31'b0,
+                 compen_ic
+		 };
+   
+
+
    assign csr_ecl_crmd_ie = crmd_ie;
+   assign csr_ifu_ic_en = compen_ic;
 
    
    assign csr_rdata = {32{csr_raddr == `LCSR_CRMD}}  & crmd   |
@@ -548,6 +585,7 @@ module c7bcsr (
 		      {32{csr_raddr == `LCSR_TVAL}}  & tval   |
 		      {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
 		      {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
+		      {32{csr_raddr == `LCSR_COMPEN}}& compen |
 		      32'b0;
 
 endmodule // cpu7_csr
