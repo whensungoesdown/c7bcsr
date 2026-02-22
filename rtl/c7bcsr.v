@@ -29,6 +29,7 @@ module c7bcsr (
 
    output                         csr_ecl_crmd_ie,
    output                         csr_ifu_ic_en, 
+   output                         csr_ifu_ic_en_pls,
    output                         csr_ecl_timer_intr,
 
    input                          ext_intr_sync
@@ -540,7 +541,6 @@ module c7bcsr (
    //
 
    wire [31:0]        compen;
-   wire [31:0]        compen_nxt;
    wire               compen_wen;
 
    assign compen_wen = (csr_waddr == `LCSR_COMPEN) && csr_wen;
@@ -554,7 +554,7 @@ module c7bcsr (
    wire               compen_ic_nxt;
 
    assign compen_ic_wdata = csr_wdata[`LCOMPEN_IC];
-   assign compen_ic_nxt = compen_ic_wdata | compen_ic;
+   assign compen_ic_nxt = compen_ic_wdata;
    
    dffrle_ns #(1) compen_ic_reg (
       .din (compen_ic_nxt),
@@ -569,6 +569,8 @@ module c7bcsr (
                  compen_ic
 		 };
    
+   // both rising edge and falling edge
+   assign csr_ifu_ic_en_pls = ((compen_ic_nxt & ~compen_ic) | (~compen_ic_nxt & compen_ic)) & compen_ic_msk_wen; 
 
 
    assign csr_ecl_crmd_ie = crmd_ie;
