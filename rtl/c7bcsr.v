@@ -291,6 +291,79 @@ module c7bcsr (
 
 
    //
+   //  SAVE0 0x30
+   //
+
+   wire [31:0]        save0;
+   wire [31:0]        save0_nxt;
+   wire               save0_wen;
+
+   assign save0_nxt = (save0 & (~csr_mask)) | (csr_wdata & csr_mask);
+   assign save0_wen = (csr_waddr == `LCSR_SAVE0) && csr_wen;
+
+   dffe_ns #(32) save0_reg (
+      .din   (save0_nxt),
+      //.rst_l (resetn),
+      .en    (save0_wen),
+      .clk   (clk),
+      .q     (save0));
+
+   //
+   //  SAVE1 0x31
+   //
+
+   wire [31:0]        save1;
+   wire [31:0]        save1_nxt;
+   wire               save1_wen;
+
+   assign save1_nxt = (save1 & (~csr_mask)) | (csr_wdata & csr_mask);
+   assign save1_wen = (csr_waddr == `LCSR_SAVE1) && csr_wen;
+
+   dffe_ns #(32) save1_reg (
+      .din   (save1_nxt),
+      //.rst_l (resetn),
+      .en    (save1_wen),
+      .clk   (clk),
+      .q     (save1));
+
+   //
+   //  SAVE2 0x32
+   //
+
+   wire [31:0]        save2;
+   wire [31:0]        save2_nxt;
+   wire               save2_wen;
+
+   assign save2_nxt = (save2 & (~csr_mask)) | (csr_wdata & csr_mask);
+   assign save2_wen = (csr_waddr == `LCSR_SAVE2) && csr_wen;
+
+   dffe_ns #(32) save2_reg (
+      .din   (save2_nxt),
+      //.rst_l (resetn),
+      .en    (save2_wen),
+      .clk   (clk),
+      .q     (save2));
+
+   //
+   //  SAVE3 0x33
+   //
+
+   wire [31:0]        save3;
+   wire [31:0]        save3_nxt;
+   wire               save3_wen;
+
+   assign save3_nxt = (save3 & (~csr_mask)) | (csr_wdata & csr_mask);
+   assign save3_wen = (csr_waddr == `LCSR_SAVE3) && csr_wen;
+
+   dffe_ns #(32) save3_reg (
+      .din   (save3_nxt),
+      //.rst_l (resetn),
+      .en    (save3_wen),
+      .clk   (clk),
+      .q     (save3));
+
+
+   //
    // TCFG  0x41
    //
 
@@ -576,18 +649,22 @@ module c7bcsr (
    assign csr_ecl_crmd_ie = crmd_ie;
    assign csr_ifu_ic_en = compen_ic;
 
-   
+
    assign csr_rdata = {32{csr_raddr == `LCSR_CRMD}}  & crmd   |
-		      {32{csr_raddr == `LCSR_PRMD}}  & prmd   |
-		      {32{csr_raddr == `LCSR_ESTAT}} & estat  |
-		      {32{csr_raddr == `LCSR_EPC}}   & era    |
-		      {32{csr_raddr == `LCSR_BADV}}  & badv   |
-		      {32{csr_raddr == `LCSR_EBASE}} & eentry |
-		      {32{csr_raddr == `LCSR_TCFG}}  & tcfg   |
-		      {32{csr_raddr == `LCSR_TVAL}}  & tval   |
-		      {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
-		      {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
-		      {32{csr_raddr == `LCSR_COMPEN}}& compen |
-		      32'b0;
+                      {32{csr_raddr == `LCSR_PRMD}}  & prmd   |
+                      {32{csr_raddr == `LCSR_ESTAT}} & estat  |
+                      {32{csr_raddr == `LCSR_EPC}}   & era    |
+                      {32{csr_raddr == `LCSR_BADV}}  & badv   |
+                      {32{csr_raddr == `LCSR_EBASE}} & eentry |
+                      {32{csr_raddr == `LCSR_TCFG}}  & tcfg   |
+                      {32{csr_raddr == `LCSR_TVAL}}  & tval   |
+                      {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
+                      {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
+                      {32{csr_raddr == `LCSR_COMPEN}}& compen |
+                      {32{csr_raddr == `LCSR_SAVE0}} & save0  |
+                      {32{csr_raddr == `LCSR_SAVE1}} & save1  |
+                      {32{csr_raddr == `LCSR_SAVE2}} & save2  |
+                      {32{csr_raddr == `LCSR_SAVE3}} & save3  |
+                      32'b0;
 
 endmodule // cpu7_csr
