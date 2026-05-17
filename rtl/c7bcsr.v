@@ -38,7 +38,7 @@ module c7bcsr (
    );
 
 
-   wire [63:0] csr_reg_rdata;
+   wire [31:0] csr_reg_rdata;
 
    wire exception;
 
