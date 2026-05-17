@@ -18,6 +18,8 @@ module c7bcsr (
    input  [`LCSR_BIT-1:0]         csr_waddr,
    input  [31:0]                  csr_mask,
    input                          csr_wen,
+   input                          csr_rdtimel,                     
+   input                          csr_rdtimeh,                     
 
    output [31:0]                  csr_eentry,
    output [31:0]                  csr_era,
@@ -35,6 +37,8 @@ module c7bcsr (
    input                          ext_intr_sync
    );
 
+
+   wire csr_reg_rdata;
 
    wire exception;
 
@@ -650,21 +654,34 @@ module c7bcsr (
    assign csr_ifu_ic_en = compen_ic;
 
 
-   assign csr_rdata = {32{csr_raddr == `LCSR_CRMD}}  & crmd   |
-                      {32{csr_raddr == `LCSR_PRMD}}  & prmd   |
-                      {32{csr_raddr == `LCSR_ESTAT}} & estat  |
-                      {32{csr_raddr == `LCSR_EPC}}   & era    |
-                      {32{csr_raddr == `LCSR_BADV}}  & badv   |
-                      {32{csr_raddr == `LCSR_EBASE}} & eentry |
-                      {32{csr_raddr == `LCSR_TCFG}}  & tcfg   |
-                      {32{csr_raddr == `LCSR_TVAL}}  & tval   |
-                      {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
-                      {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
-                      {32{csr_raddr == `LCSR_COMPEN}}& compen |
-                      {32{csr_raddr == `LCSR_SAVE0}} & save0  |
-                      {32{csr_raddr == `LCSR_SAVE1}} & save1  |
-                      {32{csr_raddr == `LCSR_SAVE2}} & save2  |
-                      {32{csr_raddr == `LCSR_SAVE3}} & save3  |
-                      32'b0;
+   assign csr_reg_rdata = {32{csr_raddr == `LCSR_CRMD}}  & crmd   |
+                          {32{csr_raddr == `LCSR_PRMD}}  & prmd   |
+                          {32{csr_raddr == `LCSR_ESTAT}} & estat  |
+                          {32{csr_raddr == `LCSR_EPC}}   & era    |
+                          {32{csr_raddr == `LCSR_BADV}}  & badv   |
+                          {32{csr_raddr == `LCSR_EBASE}} & eentry |
+                          {32{csr_raddr == `LCSR_TCFG}}  & tcfg   |
+                          {32{csr_raddr == `LCSR_TVAL}}  & tval   |
+                          {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
+                          {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
+                          {32{csr_raddr == `LCSR_COMPEN}}& compen |
+                          {32{csr_raddr == `LCSR_SAVE0}} & save0  |
+                          {32{csr_raddr == `LCSR_SAVE1}} & save1  |
+                          {32{csr_raddr == `LCSR_SAVE2}} & save2  |
+                          {32{csr_raddr == `LCSR_SAVE3}} & save3  |
+                          32'b0;
+
+   wire [63:0] counter_val;
+
+   c7bcsr_counter u_counter(
+      .clk                             (clk),
+      .resetn                          (resetn),
+      .counter_val                     (counter_val)
+   );
+
+   assign csr_rdata = {32{~(csr_rdtimel | csr_rdtimeh)}} & csr_reg_rdata      |
+	              {32{csr_rdtimel}}                  & counter_val[31:0]  |
+	              {32{csr_rdtimeh}}                  & counter_val[63:32] 
+		      ;
 
 endmodule // cpu7_csr

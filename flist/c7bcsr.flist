@@ -1,3 +1,4 @@
 ${PROJECT_ROOT}/rtl/csr_defs.v 
 ${PROJECT_ROOT}/rtl/c7bcsr_timer.v 
+${PROJECT_ROOT}/rtl/c7bcsr_counter.v 
 ${PROJECT_ROOT}/rtl/c7bcsr.v 
