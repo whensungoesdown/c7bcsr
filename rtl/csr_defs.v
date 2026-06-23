@@ -89,6 +89,11 @@
 // TID 0x0_4_0
 `define LTID_TID 31:0
 
+// LLBCTL
+`define LLBCTL_ROLLB   0
+`define LLBCTL_WCLLB   1
+`define LLBCTL_KLO     2
+
 // TCFG 0x0_4_1
 `define LTCFG_EN       0
 `define LTCFG_PERIODIC 1

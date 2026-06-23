@@ -28,7 +28,10 @@ module c7bcsr (
    input  [5:0]                   ecl_csr_exccode_w,
    input  [31:0]                  ifu_exu_pc_w,
    input                          ecl_csr_ertn_w,
+   input                          lsu_csr_llb_set,
+   input                          lsu_csr_llb_clr,
 
+   output                         csr_lsu_llb,
    output                         csr_ecl_crmd_ie,
    output                         csr_ifu_ic_en, 
    output                         csr_ifu_ic_en_pls,
@@ -368,6 +371,68 @@ module c7bcsr (
 
 
    //
+   // LLBCTL  0x60
+   //
+
+   wire [31:0]        llbctl;
+   wire               llbctl_wen;
+   
+   assign llbctl_wen = (csr_waddr == `LCSR_LLBCTL) && csr_wen;
+
+   // LLBCTL.KLO
+   wire llbctl_klo;
+   wire llbctl_klo_nxt;
+   
+   wire llbctl_klo_msk_wen = csr_mask[`LLBCTL_KLO] && llbctl_wen;
+   
+   wire klo_auto_clear = ecl_csr_ertn_w && llbctl_klo;
+   
+   assign llbctl_klo_nxt = klo_auto_clear ? 1'b0 :
+                           (llbctl_klo_msk_wen ? csr_wdata[`LLBCTL_KLO] :
+                            llbctl_klo);
+   
+   dffrl_ns #(1) llbctl_klo_reg (
+      .din   (llbctl_klo_nxt),
+      .rst_l (resetn),
+      .clk   (clk),
+      .q     (llbctl_klo)
+   );
+
+   // LLBCTL.ROLLB
+   // LLBCTL.WCLLB
+   
+   wire llbctl_rollb; 
+   wire llbctl_rollb_nxt;
+
+   wire llbctl_wcllb_msk_wen = csr_mask[`LLBCTL_WCLLB] && llbctl_wen;
+
+   wire rollb_clr = lsu_csr_llb_clr ||
+                   (llbctl_wcllb_msk_wen && csr_wdata[`LLBCTL_WCLLB]) ||
+                   (ecl_csr_ertn_w && !llbctl_klo);
+
+   wire rollb_set = lsu_csr_llb_set;
+
+   assign llbctl_rollb_nxt = rollb_set ? 1'b1 :
+                          (rollb_clr ? 1'b0 : llbctl_rollb);
+
+   dffrl_ns #(1) llbctl_rollb_reg (
+      .din   (llbctl_rollb_nxt),
+      .rst_l (resetn),
+      .clk   (clk),
+      .q     (llbctl_rollb));
+
+
+   assign llbctl = {
+	         29'b0, 
+	         llbctl_klo,
+		 1'b0,        // WCLLB
+		 llbctl_rollb
+	 };
+
+   assign csr_lsu_llb = llbctl_rollb;
+
+
+   //
    // TCFG  0x41
    //
 
@@ -669,6 +734,7 @@ module c7bcsr (
                           {32{csr_raddr == `LCSR_SAVE1}} & save1  |
                           {32{csr_raddr == `LCSR_SAVE2}} & save2  |
                           {32{csr_raddr == `LCSR_SAVE3}} & save3  |
+                          {32{csr_raddr == `LCSR_LLBCTL}}& llbctl |
                           32'b0;
 
    wire [63:0] counter_val;
