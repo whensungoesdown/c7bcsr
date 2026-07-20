@@ -23,6 +23,7 @@ module c7bcsr (
 
    output [31:0]                  csr_eentry,
    output [31:0]                  csr_era,
+   output [31:0]                  csr_tlbrentry,
    input  [31:0]                  ecl_csr_badv_w,
    input                          exu_ifu_except,
    input  [5:0]                   ecl_csr_exccode_w,
@@ -33,6 +34,12 @@ module c7bcsr (
 
    output                         csr_lsu_llb,
    output                         csr_ecl_crmd_ie,
+   output                         csr_crmd_da,
+   output                         csr_crmd_pg,
+   output [2:0]                   csr_dmw0_pseg,
+   output [2:0]                   csr_dmw0_vseg,
+   output [2:0]                   csr_dmw1_pseg,
+   output [2:0]                   csr_dmw1_vseg,
    output                         csr_ifu_ic_en, 
    output                         csr_ifu_ic_en_pls,
    output                         csr_ecl_timer_intr,
@@ -55,6 +62,7 @@ module c7bcsr (
    wire [1:0]         prmd_pplv_wdata;
    wire [1:0]         prmd_pplv_nxt;
 
+   wire [`LESTAT_ECODE] estat_ecode;
 
    //
    //  CRMD 0x0
@@ -149,9 +157,66 @@ module c7bcsr (
       .q     (crmd_plv));
       //.se(), .si(), .so());
 
+
+   // `EXC_TLBR 6'h3f
+   wire tlbr_exception = exception & (ecl_csr_exccode_w == 6'h3f); // estat_ecode is one cycle late
+   wire ertn_tlbr_excep = ecl_csr_ertn_w & (estat_ecode == 6'h3f);
+
+   // CRMD.DA (bit[3]) and CRMD.PG (bit[4])
+   // Reset: DA=1, PG=0 (direct mode)
+   // On tlb_exception: forced to DA=1, PG=0
    
+   wire crmd_da;
+   wire crmd_pg;
+
+   wire crmd_da_wen = csr_mask[`CRMD_DA] & crmd_wen;
+   wire crmd_pg_wen = csr_mask[`CRMD_PG] & crmd_wen;
+   
+   // DA next value:
+   // - During reset (resetn=0): force 1 (loads on first clock)
+   // - TLB refill exception: 1
+   // - ERTN from TLB refill: 0
+   // - Normal write: csr_wdata
+   wire crmd_da_din = (~resetn)                 ? 1'b1 :
+                      tlbr_exception            ? 1'b1 :
+                      ertn_tlbr_excep           ? 1'b0 :
+                      csr_wdata[`CRMD_DA];
+
+   // Enable: write OR exception OR ERTN from TLB refill OR reset
+   wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep | (~resetn);
+
+   // da should be 1'b1 after reset
+   dffe_ns #(1) crmd_da_reg (
+       .din   (crmd_da_din),
+       //.rst_l (resetn),
+       .en    (crmd_da_en),
+       .clk   (clk),
+       .q     (crmd_da)
+   );
+   
+   // PG next value:
+   // - TLB refill exception -> 0
+   // - ERTN from TLB refill -> 1
+   // - normal write -> csr_wdata[PG]
+   wire crmd_pg_din = tlbr_exception            ? 1'b0 :
+                      ertn_tlbr_excep           ? 1'b1 :
+                      csr_wdata[`CRMD_PG];
+
+   wire crmd_pg_en = crmd_pg_wen | tlbr_exception | ertn_tlbr_excep;
+   
+   dffrle_ns #(1) crmd_pg_reg (
+       .din   (crmd_pg_din),
+       .rst_l (resetn),
+       .en    (crmd_pg_en),
+       .clk   (clk),
+       .q     (crmd_pg)
+   );
+   
+
    assign crmd = {
-		 29'b0,
+		 27'b0,
+		 crmd_pg,
+		 crmd_da,
 		 crmd_ie,
 		 crmd_plv
 		 };
@@ -433,6 +498,29 @@ module c7bcsr (
 
 
    //
+   //  TLBRENTRY 0x88
+   //
+
+   wire [31:0]        tlbrentry;
+   wire [31:0]        tlbrentry_nxt;
+   wire               tlbrentry_wen;
+
+   assign tlbrentry_nxt = (tlbrentry & (~csr_mask)) | (csr_wdata & csr_mask);
+   assign tlbrentry_wen = (csr_waddr == `LCSR_TLBREBASE) && csr_wen; // TLBREBASE aka TLBRENTRY
+
+   dffrle_ns #(32) tlbrentry_reg (
+      .din   (tlbrentry_nxt),
+      .rst_l (resetn),
+      .en    (tlbrentry_wen),
+      .clk   (clk),
+      .q     (tlbrentry));
+      //.se(), .si(), .so());
+
+   assign csr_tlbrentry = tlbrentry;
+
+
+
+   //
    // TCFG  0x41
    //
 
@@ -608,7 +696,6 @@ module c7bcsr (
 	             };
 
 
-   wire [`LESTAT_ECODE] estat_ecode;
 
    // not control data, only for query, no need reset
    //  need reset, if there is no exception happened before, the estat contains x
@@ -710,32 +797,220 @@ module c7bcsr (
 		 31'b0,
                  compen_ic
 		 };
+
+
+   //
+   //  DMW0 0x180
+   //
+
+   wire [31:0] dmw0;
+   wire dmw0_wen;
+   assign dmw0_wen = (csr_waddr == `LCSR_DMW0) && csr_wen;
+
+   wire dmw0_plv0;
+   wire dmw0_plv3;
+   wire [1:0] dmw0_mat;
+   wire [2:0] dmw0_pseg;
+   wire [2:0] dmw0_vseg;
+
+   wire dmw0_plv0_wen = csr_mask[`LDMW_PLV0] & dmw0_wen;
+   wire dmw0_plv3_wen = csr_mask[`LDMW_PLV3] & dmw0_wen;
+   wire dmw0_mat_wen = |csr_mask[`LDMW_MAT] & dmw0_wen;
+   wire dmw0_pseg_wen = |csr_mask[`LDMW_PSEG] & dmw0_wen;
+   wire dmw0_vseg_wen = |csr_mask[`LDMW_VSEG] & dmw0_wen;
+
+
+   wire dmw0_plv0_in;
+   assign dmw0_plv0_in = csr_wdata[`LDMW_PLV0] & csr_mask[`LDMW_PLV0];
+
+   dffrle_ns #(1) dmw0_plv0_reg (
+      .din   (dmw0_plv0_in),
+      .rst_l (resetn),
+      .en    (dmw0_plv0_wen),
+      .clk   (clk),
+      .q     (dmw0_plv0));
+
+
+   wire dmw0_plv3_in;
+   assign dmw0_plv3_in = csr_wdata[`LDMW_PLV3] & csr_mask[`LDMW_PLV3];
+
+   dffrle_ns #(1) dmw0_plv3_reg (
+      .din   (dmw0_plv3_in),
+      .rst_l (resetn),
+      .en    (dmw0_plv3_wen),
+      .clk   (clk),
+      .q     (dmw0_plv3));
    
+
+   wire [1:0] dmw0_mat_in;
+   assign dmw0_mat_in = (dmw0_mat & (~csr_mask[`LDMW_MAT])) | (csr_wdata[`LDMW_MAT] & csr_mask[`LDMW_MAT]);
+
+   dffrle_ns #(2) dmw0_mat_reg (
+      .din   (dmw0_mat_in),
+      .rst_l (resetn),
+      .en    (dmw0_mat_wen),
+      .clk   (clk),
+      .q     (dmw0_mat));
+
+
+   wire [2:0] dmw0_pseg_in;
+   assign dmw0_pseg_in = (dmw0_pseg & (~csr_mask[`LDMW_PSEG])) | (csr_wdata[`LDMW_PSEG] & csr_mask[`LDMW_PSEG]);
+
+   dffrle_ns #(3) dmw0_pseg_reg (
+      .din   (dmw0_pseg_in),
+      .rst_l (resetn),
+      .en    (dmw0_pseg_wen),
+      .clk   (clk),
+      .q     (dmw0_pseg));
+
+
+   wire [2:0] dmw0_vseg_in;
+   assign dmw0_vseg_in = (dmw0_vseg & (~csr_mask[`LDMW_VSEG])) | (csr_wdata[`LDMW_VSEG] & csr_mask[`LDMW_VSEG]);
+
+   dffrle_ns #(3) dmw0_vseg_reg (
+      .din   (dmw0_vseg_in),
+      .rst_l (resetn),
+      .en    (dmw0_vseg_wen),
+      .clk   (clk),
+      .q     (dmw0_vseg));
+   
+
+   assign dmw0 = {
+                 dmw0_vseg,
+                 1'b0,
+                 dmw0_pseg,
+                 19'b0,  
+                 dmw0_mat,
+                 dmw0_plv3,
+                 2'b0,
+                 dmw0_plv0
+                 };
+
+   assign csr_dmw0_pseg = dmw0_pseg;
+   assign csr_dmw0_vseg = dmw0_vseg;
+
+   //
+   //  DMW1 0x181
+   //
+
+   wire [31:0] dmw1;
+   wire dmw1_wen;
+   assign dmw1_wen = (csr_waddr == `LCSR_DMW1) && csr_wen;
+
+   wire dmw1_plv0;
+   wire dmw1_plv3;
+   wire [1:0] dmw1_mat;
+   wire [2:0] dmw1_pseg;
+   wire [2:0] dmw1_vseg;
+
+   wire dmw1_plv0_wen = csr_mask[`LDMW_PLV0] & dmw1_wen;
+   wire dmw1_plv3_wen = csr_mask[`LDMW_PLV3] & dmw1_wen;
+   wire dmw1_mat_wen = |csr_mask[`LDMW_MAT] & dmw1_wen;
+   wire dmw1_pseg_wen = |csr_mask[`LDMW_PSEG] & dmw1_wen;
+   wire dmw1_vseg_wen = |csr_mask[`LDMW_VSEG] & dmw1_wen;
+
+
+   wire dmw1_plv0_in;
+   assign dmw1_plv0_in = csr_wdata[`LDMW_PLV0] & csr_mask[`LDMW_PLV0];
+
+   dffrle_ns #(1) dmw1_plv0_reg (
+      .din   (dmw1_plv0_in),
+      .rst_l (resetn),
+      .en    (dmw1_plv0_wen),
+      .clk   (clk),
+      .q     (dmw1_plv0));
+
+
+   wire dmw1_plv3_in;
+   assign dmw1_plv3_in = csr_wdata[`LDMW_PLV3] & csr_mask[`LDMW_PLV3];
+
+   dffrle_ns #(1) dmw1_plv3_reg (
+      .din   (dmw1_plv3_in),
+      .rst_l (resetn),
+      .en    (dmw1_plv3_wen),
+      .clk   (clk),
+      .q     (dmw1_plv3));
+   
+
+   wire [1:0] dmw1_mat_in;
+   assign dmw1_mat_in = (dmw1_mat & (~csr_mask[`LDMW_MAT])) | (csr_wdata[`LDMW_MAT] & csr_mask[`LDMW_MAT]);
+
+   dffrle_ns #(2) dmw1_mat_reg (
+      .din   (dmw1_mat_in),
+      .rst_l (resetn),
+      .en    (dmw1_mat_wen),
+      .clk   (clk),
+      .q     (dmw1_mat));
+
+
+   wire [2:0] dmw1_pseg_in;
+   assign dmw1_pseg_in = (dmw1_pseg & (~csr_mask[`LDMW_PSEG])) | (csr_wdata[`LDMW_PSEG] & csr_mask[`LDMW_PSEG]);
+
+   dffrle_ns #(3) dmw1_pseg_reg (
+      .din   (dmw1_pseg_in),
+      .rst_l (resetn),
+      .en    (dmw1_pseg_wen),
+      .clk   (clk),
+      .q     (dmw1_pseg));
+
+
+   wire [2:0] dmw1_vseg_in;
+   assign dmw1_vseg_in = (dmw1_vseg & (~csr_mask[`LDMW_VSEG])) | (csr_wdata[`LDMW_VSEG] & csr_mask[`LDMW_VSEG]);
+
+   dffrle_ns #(3) dmw1_vseg_reg (
+      .din   (dmw1_vseg_in),
+      .rst_l (resetn),
+      .en    (dmw1_vseg_wen),
+      .clk   (clk),
+      .q     (dmw1_vseg));
+   
+
+   assign dmw1 = {
+                 dmw1_vseg,
+                 1'b0,
+                 dmw1_pseg,
+                 19'b0,  
+                 dmw1_mat,
+                 dmw1_plv3,
+                 2'b0,
+                 dmw1_plv0
+                 };
+   
+   assign csr_dmw1_pseg = dmw1_pseg;
+   assign csr_dmw1_vseg = dmw1_vseg;
+
+
    // both rising edge and falling edge
    assign csr_ifu_ic_en_pls = ((compen_ic_nxt & ~compen_ic) | (~compen_ic_nxt & compen_ic)) & compen_ic_msk_wen; 
 
 
    assign csr_ecl_crmd_ie = crmd_ie;
+   assign csr_crmd_da = crmd_da;
+   assign csr_crmd_pg = crmd_pg;
    assign csr_ifu_ic_en = compen_ic;
 
 
-   assign csr_reg_rdata = {32{csr_raddr == `LCSR_CRMD}}  & crmd   |
-                          {32{csr_raddr == `LCSR_PRMD}}  & prmd   |
-                          {32{csr_raddr == `LCSR_ESTAT}} & estat  |
-                          {32{csr_raddr == `LCSR_EPC}}   & era    |
-                          {32{csr_raddr == `LCSR_BADV}}  & badv   |
-                          {32{csr_raddr == `LCSR_EBASE}} & eentry |
-                          {32{csr_raddr == `LCSR_TCFG}}  & tcfg   |
-                          {32{csr_raddr == `LCSR_TVAL}}  & tval   |
-                          {32{csr_raddr == `LCSR_TICLR}} & ticlr  |
-                          {32{csr_raddr == `LCSR_BSEC}}  & bsec   |
-                          {32{csr_raddr == `LCSR_COMPEN}}& compen |
-                          {32{csr_raddr == `LCSR_SAVE0}} & save0  |
-                          {32{csr_raddr == `LCSR_SAVE1}} & save1  |
-                          {32{csr_raddr == `LCSR_SAVE2}} & save2  |
-                          {32{csr_raddr == `LCSR_SAVE3}} & save3  |
-                          {32{csr_raddr == `LCSR_LLBCTL}}& llbctl |
+   assign csr_reg_rdata = {32{csr_raddr == `LCSR_CRMD}}     & crmd   |
+                          {32{csr_raddr == `LCSR_PRMD}}     & prmd   |
+                          {32{csr_raddr == `LCSR_ESTAT}}    & estat  |
+                          {32{csr_raddr == `LCSR_EPC}}      & era    |
+                          {32{csr_raddr == `LCSR_BADV}}     & badv   |
+                          {32{csr_raddr == `LCSR_EBASE}}    & eentry |
+                          {32{csr_raddr == `LCSR_TCFG}}     & tcfg   |
+                          {32{csr_raddr == `LCSR_TVAL}}     & tval   |
+                          {32{csr_raddr == `LCSR_TICLR}}    & ticlr  |
+                          {32{csr_raddr == `LCSR_BSEC}}     & bsec   |
+                          {32{csr_raddr == `LCSR_COMPEN}}   & compen |
+                          {32{csr_raddr == `LCSR_SAVE0}}    & save0  |
+                          {32{csr_raddr == `LCSR_SAVE1}}    & save1  |
+                          {32{csr_raddr == `LCSR_SAVE2}}    & save2  |
+                          {32{csr_raddr == `LCSR_SAVE3}}    & save3  |
+                          {32{csr_raddr == `LCSR_LLBCTL}}   & llbctl |
+                          {32{csr_raddr == `LCSR_TLBREBASE}}& tlbrentry|
+                          {32{csr_raddr == `LCSR_DMW0}}     & dmw0   |
+                          {32{csr_raddr == `LCSR_DMW1}}     & dmw1   |
                           32'b0;
+
 
    wire [63:0] counter_val;
 

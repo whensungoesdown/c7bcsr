@@ -110,6 +110,15 @@
 // TICLR 0x0_4_4
 `define LTICLR_CLR 0
 
+// DMWIN 0x1_8_0 - 0x1_8_1
+`define LDMW_PLV0 0
+`define LDMW_PLV3 3
+`define LDMW_MAT  5:4
+`define LDMW_PSEG 27:25
+`define LDMW_VSEG 31:29
+
+
+
 
 // EUEN 0x0_0_2
 `define LSOC1K_EUEN_BTE    3
@@ -271,18 +280,18 @@
 // ERREPC 0x0_9_4
 `define LSOC1K_ERREPC_EPC        63:0
 
-// DMWIN 0x1_8_0 - 0x1_8_1
-`define LSOC1K_DMW_PLV0 0
-`define LSOC1K_DMW_PLV1 1
-`define LSOC1K_DMW_PLV2 2
-`define LSOC1K_DMW_PLV3 3
-`define LSOC1K_DMW_MAT  5:4
-`ifdef GS264C_64BIT
-  `define LSOC1K_DMW_VSEG 63:56
-`else
-  `define LSOC1K_DMW_PSEG 27:25
-  `define LSOC1K_DMW_VSEG 31:29
-`endif 
+//// DMWIN 0x1_8_0 - 0x1_8_1
+//`define LSOC1K_DMW_PLV0 0
+//`define LSOC1K_DMW_PLV1 1
+//`define LSOC1K_DMW_PLV2 2
+//`define LSOC1K_DMW_PLV3 3
+//`define LSOC1K_DMW_MAT  5:4
+//`ifdef GS264C_64BIT
+//  `define LSOC1K_DMW_VSEG 63:56
+//`else
+//  `define LSOC1K_DMW_PSEG 27:25
+//  `define LSOC1K_DMW_VSEG 31:29
+//`endif 
 
 // PMCFG 0x2_0_0 + 2N
 `define LSOC1K_PMCFG_EVENT  9:0
