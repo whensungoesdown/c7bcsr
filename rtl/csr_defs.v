@@ -9,7 +9,8 @@
 `define LCSR_BADV          `LCSR_BIT'h0_0_0_7
 `define LCSR_BADI          `LCSR_BIT'h0_0_0_8
 `define LCSR_EBASE         `LCSR_BIT'h0_0_0_C
-`define LCSR_INDEX         `LCSR_BIT'h0_0_1_0
+//`define LCSR_INDEX         `LCSR_BIT'h0_0_1_0
+`define LCSR_TLBIDX        `LCSR_BIT'h0_0_1_0
 `define LCSR_TLBEHI        `LCSR_BIT'h0_0_1_1
 `define LCSR_TLBELO0       `LCSR_BIT'h0_0_1_2
 `define LCSR_TLBELO1       `LCSR_BIT'h0_0_1_3
@@ -85,6 +86,30 @@
 `define LPRMD_PIE    2
 `define LPRMD_PPLV   1:0
 
+// INDEX 0x0_1_0
+`define TLBIDX_NE    31
+`define TLBIDX_PS    29:24
+`define TLBIDX_INDEX 4:0
+
+// ENTRYHI 0x0_1_1
+`define TLBEHI_VPPN  31:13
+
+// csr 0x12/0x13 EntryLo0, EntryLo1
+`define TLBELO_PPN          27:8
+`define TLBELO_G            6
+`define TLBELO_MAT          5: 4
+`define TLBELO_PLV          3: 2
+`define TLBELO_D            1
+`define TLBELO_V            0
+
+// PGDL 0x0_1_9
+`define PGDL_BASE 31:12
+
+// PGDH 0x0_1_A
+`define PGDH_BASE 31:12
+
+// PGD 0x0_1_B
+`define PGD_BASE  31:12
 
 // TID 0x0_4_0
 `define LTID_TID 31:0
@@ -164,41 +189,41 @@
 `define LSOC1K_EBASE_EBASE 31:6
 `endif
 
-// INDEX 0x0_1_0
-`define LSOC1K_INDEX_NP    31
-`define LSOC1K_INDEX_PS    29:24
-`define LSOC1K_INDEX_INDEX `TLB_IDXBITS-1: 0
+//// INDEX 0x0_1_0
+//`define LSOC1K_INDEX_NP    31
+//`define LSOC1K_INDEX_PS    29:24
+//`define LSOC1K_INDEX_INDEX `TLB_IDXBITS-1: 0
 
 // ENTRYHI 0x0_1_1
-`define LSOC1K_TLBEHI_VPN2 `VABITS-1:13
+//`define LSOC1K_TLBEHI_VPN2 `VABITS-1:13
 
-// csr 0x12/0x13 EntryLo0, EntryLo1
-`define LSOC1K_TLBELO_RPLV         63
-`define LSOC1K_TLBELO_NX           62
-`define LSOC1K_TLBELO_NR           61
-`ifdef GS264C_64BIT
-  `define LSOC1K_TLBELO_PFN        `PABITS-1:12
-`else
-  `define LSOC1K_TLBELO_PFN        31:8
-`endif
-`define LSOC1K_TLBELO_G            6
-`define LSOC1K_TLBELO_MAT          5: 4
-`define LSOC1K_TLBELO_PLV          3: 2
-`define LSOC1K_TLBELO_WE           1
-`define LSOC1K_TLBELO_V            0
+//// csr 0x12/0x13 EntryLo0, EntryLo1
+//`define LSOC1K_TLBELO_RPLV         63
+//`define LSOC1K_TLBELO_NX           62
+//`define LSOC1K_TLBELO_NR           61
+//`ifdef GS264C_64BIT
+//  `define LSOC1K_TLBELO_PFN        `PABITS-1:12
+//`else
+//  `define LSOC1K_TLBELO_PFN        31:8
+//`endif
+//`define LSOC1K_TLBELO_G            6
+//`define LSOC1K_TLBELO_MAT          5: 4
+//`define LSOC1K_TLBELO_PLV          3: 2
+//`define LSOC1K_TLBELO_WE           1
+//`define LSOC1K_TLBELO_V            0
 
 // ASID 0x0_1_8  
 `define LSOC1K_ASID_ASIDBITS       23:16
 `define LSOC1K_ASID_ASID            9: 0
 
-// PGDL 0x0_1_9
-`define LSOC1K_PGDL_BASE 31:12
-
-// PGDH 0x0_1_A
-`define LSOC1K_PGDH_BASE 31:12
-
-// PGD 0x0_1_B
-`define LSOC1K_PGD_BASE  31:12
+//// PGDL 0x0_1_9
+//`define LSOC1K_PGDL_BASE 31:12
+//
+//// PGDH 0x0_1_A
+//`define LSOC1K_PGDH_BASE 31:12
+//
+//// PGD 0x0_1_B
+//`define LSOC1K_PGD_BASE  31:12
 
 // PWCL 0x0_1_C 
 `define LSOC1K_PWCL_PTBASE      4: 0

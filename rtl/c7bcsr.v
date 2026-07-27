@@ -44,7 +44,29 @@ module c7bcsr (
    output                         csr_ifu_ic_en_pls,
    output                         csr_ecl_timer_intr,
 
-   input                          ext_intr_sync
+   input                          ext_intr_sync,
+
+   output [18:0]                  csr_tlbehi_vppn,
+
+   output                         csr_tlbidx_ne,
+   output [5:0]                   csr_tlbidx_ps,
+   output [4:0]                   csr_tlbidx_index,
+
+   output [19:0]                  csr_tlbelo0_ppn,
+   output                         csr_tlbelo0_g,
+   output [1:0]                   csr_tlbelo0_mat,
+   output [1:0]                   csr_tlbelo0_plv,
+   output                         csr_tlbelo0_d,
+   output                         csr_tlbelo0_v,
+   
+   output [19:0]                  csr_tlbelo1_ppn,
+   output                         csr_tlbelo1_g,
+   output [1:0]                   csr_tlbelo1_mat,
+   output [1:0]                   csr_tlbelo1_plv,
+   output                         csr_tlbelo1_d,
+   output                         csr_tlbelo1_v,
+
+   output                         csr_tlbrefill_ctx 
    );
 
 
@@ -159,8 +181,12 @@ module c7bcsr (
 
 
    // `EXC_TLBR 6'h3f
+   wire tlbrefill_ctx = estat_ecode == 6'h3f;
    wire tlbr_exception = exception & (ecl_csr_exccode_w == 6'h3f); // estat_ecode is one cycle late
-   wire ertn_tlbr_excep = ecl_csr_ertn_w & (estat_ecode == 6'h3f);
+   wire ertn_tlbr_excep = ecl_csr_ertn_w & tlbrefill_ctx;
+
+   assign csr_tlbrefill_ctx = tlbrefill_ctx;
+
 
    // CRMD.DA (bit[3]) and CRMD.PG (bit[4])
    // Reset: DA=1, PG=0 (direct mode)
@@ -363,6 +389,419 @@ module c7bcsr (
 
 
    //
+   //  TLBIDX 0x10
+   //  Fields:
+   //    [31]    NE   (1 bit)
+   //    [30]    reserved (0)
+   //    [29:24] PS   (6 bits)
+   //    [23:5]  reserved (0)
+   //    [4:0]   INDEX (5 bits)
+   //
+   
+   wire [31:0] tlbidx;
+   wire        tlbidx_wen;
+   assign tlbidx_wen = (csr_waddr == `LCSR_TLBIDX) && csr_wen;
+   
+   // ---------- INDEX (bits 4:0) ----------
+   wire [4:0] tlbidx_index;
+   wire       tlbidx_index_wen = |csr_mask[`TLBIDX_INDEX] & tlbidx_wen;
+   wire [4:0] tlbidx_index_in = (tlbidx_index & ~csr_mask[`TLBIDX_INDEX]) |
+                                 (csr_wdata[`TLBIDX_INDEX] & csr_mask[`TLBIDX_INDEX]);
+   
+   dffrle_ns #(5) tlbidx_index_reg (
+       .din   (tlbidx_index_in),
+       .rst_l (resetn),
+       .en    (tlbidx_index_wen),
+       .clk   (clk),
+       .q     (tlbidx_index)
+   );
+   
+   // ---------- PS (bits 29:24) ----------
+   wire [5:0] tlbidx_ps;
+   wire       tlbidx_ps_wen = |csr_mask[`TLBIDX_PS] & tlbidx_wen;
+   wire [5:0] tlbidx_ps_in = (tlbidx_ps & ~csr_mask[`TLBIDX_PS]) |
+                             (csr_wdata[`TLBIDX_PS] & csr_mask[`TLBIDX_PS]);
+   
+   dffrle_ns #(6) tlbidx_ps_reg (
+       .din   (tlbidx_ps_in),
+       .rst_l (resetn),
+       .en    (tlbidx_ps_wen),
+       .clk   (clk),
+       .q     (tlbidx_ps)
+   );
+   
+   // ---------- NE (bit 31) ----------
+   wire        tlbidx_ne;
+   wire        tlbidx_ne_wen = csr_mask[`TLBIDX_NE] & tlbidx_wen;
+   wire        tlbidx_ne_in = csr_wdata[`TLBIDX_NE] & csr_mask[`TLBIDX_NE];
+   
+   dffrle_ns #(1) tlbidx_ne_reg (
+       .din   (tlbidx_ne_in),
+       .rst_l (resetn),
+       .en    (tlbidx_ne_wen),
+       .clk   (clk),
+       .q     (tlbidx_ne)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   // Note: Most significant bit is NE, least significant is INDEX
+   assign tlbidx = {
+       tlbidx_ne,      // [31]
+       1'b0,           // [30] reserved
+       tlbidx_ps,      // [29:24]
+       19'b0,          // [23:5] reserved
+       tlbidx_index    // [4:0]
+   };
+
+   assign csr_tlbidx_ne = tlbidx_ne;
+   assign csr_tlbidx_ps = tlbidx_ps;
+   assign csr_tlbidx_index = tlbidx_index;
+
+
+   //
+   //  TLBEHI 0x11
+   //  Fields:
+   //    [31:13] VPPN  (19 bits, virtual paired page number)
+   //    [12:0]  reserved (0)
+   //
+   
+   wire [31:0] tlbehi;
+   wire        tlbehi_wen;
+   assign tlbehi_wen = (csr_waddr == `LCSR_TLBEHI) && csr_wen;
+   
+   // ---------- VPPN (bits 31:13) ----------
+   wire [18:0] tlbehi_vppn;
+   wire        tlbehi_vppn_wen = |csr_mask[`TLBEHI_VPPN] & tlbehi_wen;
+   wire [18:0] tlbehi_vppn_in = (tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
+                                 (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]);
+   
+   dffrle_ns #(19) tlbehi_vppn_reg (
+       .din   (tlbehi_vppn_in),
+       .rst_l (resetn),
+       .en    (tlbehi_vppn_wen),
+       .clk   (clk),
+       .q     (tlbehi_vppn)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign tlbehi = {
+       tlbehi_vppn,   // [31:13]
+       13'b0          // [12:0] reserved
+   };
+
+   assign csr_tlbehi_vppn = tlbehi_vppn;
+
+   
+   //
+   //  TLBELO0 0x12
+   //  Fields:
+   //    [31:28] reserved (0)
+   //    [27:8]  PPN  (20 bits)
+   //    [7]     reserved (0)
+   //    [6]     G    (1 bit)
+   //    [5:4]   MAT  (2 bits)
+   //    [3:2]   PLV  (2 bits)
+   //    [1]     D    (1 bit)
+   //    [0]     V    (1 bit)
+   //
+   
+   wire [31:0] tlbelo0;
+   wire        tlbelo0_wen;
+   assign tlbelo0_wen = (csr_waddr == `LCSR_TLBELO0) && csr_wen;
+   
+   // ---------- V (bit 0) ----------
+   wire        tlbelo0_v;
+   wire        tlbelo0_v_wen = csr_mask[`TLBELO_V] & tlbelo0_wen;
+   wire        tlbelo0_v_in = csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V];
+   
+   dffrle_ns #(1) tlbelo0_v_reg (
+       .din   (tlbelo0_v_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_v_wen),
+       .clk   (clk),
+       .q     (tlbelo0_v)
+   );
+   
+   // ---------- D (bit 1) ----------
+   wire        tlbelo0_d;
+   wire        tlbelo0_d_wen = csr_mask[`TLBELO_D] & tlbelo0_wen;
+   wire        tlbelo0_d_in = csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D];
+   
+   dffrle_ns #(1) tlbelo0_d_reg (
+       .din   (tlbelo0_d_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_d_wen),
+       .clk   (clk),
+       .q     (tlbelo0_d)
+   );
+   
+   // ---------- PLV (bits 3:2) ----------
+   wire [1:0] tlbelo0_plv;
+   wire       tlbelo0_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo0_wen;
+   wire [1:0] tlbelo0_plv_in = (tlbelo0_plv & ~csr_mask[`TLBELO_PLV]) |
+                                (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]);
+   
+   dffrle_ns #(2) tlbelo0_plv_reg (
+       .din   (tlbelo0_plv_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_plv_wen),
+       .clk   (clk),
+       .q     (tlbelo0_plv)
+   );
+   
+   // ---------- MAT (bits 5:4) ----------
+   wire [1:0] tlbelo0_mat;
+   wire       tlbelo0_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo0_wen;
+   wire [1:0] tlbelo0_mat_in = (tlbelo0_mat & ~csr_mask[`TLBELO_MAT]) |
+                                (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]);
+   
+   dffrle_ns #(2) tlbelo0_mat_reg (
+       .din   (tlbelo0_mat_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_mat_wen),
+       .clk   (clk),
+       .q     (tlbelo0_mat)
+   );
+   
+   // ---------- G (bit 6) ----------
+   wire        tlbelo0_g;
+   wire        tlbelo0_g_wen = csr_mask[`TLBELO_G] & tlbelo0_wen;
+   wire        tlbelo0_g_in = csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G];
+   
+   dffrle_ns #(1) tlbelo0_g_reg (
+       .din   (tlbelo0_g_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_g_wen),
+       .clk   (clk),
+       .q     (tlbelo0_g)
+   );
+   
+   // ---------- PPN (bits 27:8) ----------
+   wire [19:0] tlbelo0_ppn;
+   wire        tlbelo0_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo0_wen;
+   wire [19:0] tlbelo0_ppn_in = (tlbelo0_ppn & ~csr_mask[`TLBELO_PPN]) |
+                                 (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]);
+   
+   dffrle_ns #(20) tlbelo0_ppn_reg (
+       .din   (tlbelo0_ppn_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_ppn_wen),
+       .clk   (clk),
+       .q     (tlbelo0_ppn)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign tlbelo0 = {
+       4'b0,               // [31:28] reserved
+       tlbelo0_ppn,        // [27:8]
+       1'b0,               // [7] reserved
+       tlbelo0_g,          // [6]
+       tlbelo0_mat,        // [5:4]
+       tlbelo0_plv,        // [3:2]
+       tlbelo0_d,          // [1]
+       tlbelo0_v           // [0]
+   };
+
+   assign csr_tlbelo0_ppn = tlbelo0_ppn;
+   assign csr_tlbelo0_g = tlbelo0_g;
+   assign csr_tlbelo0_mat = tlbelo0_mat;
+   assign csr_tlbelo0_plv = tlbelo0_plv;
+   assign csr_tlbelo0_d = tlbelo0_d;
+   assign csr_tlbelo0_v = tlbelo0_v;
+
+
+   //
+   //  TLBELO1 0x13
+   //  Fields:
+   //    [31:28] reserved (0)
+   //    [27:8]  PPN  (20 bits)
+   //    [7]     reserved (0)
+   //    [6]     G    (1 bit)
+   //    [5:4]   MAT  (2 bits)
+   //    [3:2]   PLV  (2 bits)
+   //    [1]     D    (1 bit)
+   //    [0]     V    (1 bit)
+   //
+   
+   wire [31:0] tlbelo1;
+   wire        tlbelo1_wen;
+   assign tlbelo1_wen = (csr_waddr == `LCSR_TLBELO1) && csr_wen;
+   
+   // ---------- V (bit 0) ----------
+   wire        tlbelo1_v;
+   wire        tlbelo1_v_wen = csr_mask[`TLBELO_V] & tlbelo1_wen;
+   wire        tlbelo1_v_in = csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V];
+   
+   dffrle_ns #(1) tlbelo1_v_reg (
+       .din   (tlbelo1_v_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_v_wen),
+       .clk   (clk),
+       .q     (tlbelo1_v)
+   );
+   
+   // ---------- D (bit 1) ----------
+   wire        tlbelo1_d;
+   wire        tlbelo1_d_wen = csr_mask[`TLBELO_D] & tlbelo1_wen;
+   wire        tlbelo1_d_in = csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D];
+   
+   dffrle_ns #(1) tlbelo1_d_reg (
+       .din   (tlbelo1_d_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_d_wen),
+       .clk   (clk),
+       .q     (tlbelo1_d)
+   );
+   
+   // ---------- PLV (bits 3:2) ----------
+   wire [1:0] tlbelo1_plv;
+   wire       tlbelo1_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo1_wen;
+   wire [1:0] tlbelo1_plv_in = (tlbelo1_plv & ~csr_mask[`TLBELO_PLV]) |
+                                (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]);
+   
+   dffrle_ns #(2) tlbelo1_plv_reg (
+       .din   (tlbelo1_plv_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_plv_wen),
+       .clk   (clk),
+       .q     (tlbelo1_plv)
+   );
+   
+   // ---------- MAT (bits 5:4) ----------
+   wire [1:0] tlbelo1_mat;
+   wire       tlbelo1_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo1_wen;
+   wire [1:0] tlbelo1_mat_in = (tlbelo1_mat & ~csr_mask[`TLBELO_MAT]) |
+                                (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]);
+   
+   dffrle_ns #(2) tlbelo1_mat_reg (
+       .din   (tlbelo1_mat_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_mat_wen),
+       .clk   (clk),
+       .q     (tlbelo1_mat)
+   );
+   
+   // ---------- G (bit 6) ----------
+   wire        tlbelo1_g;
+   wire        tlbelo1_g_wen = csr_mask[`TLBELO_G] & tlbelo1_wen;
+   wire        tlbelo1_g_in = csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G];
+   
+   dffrle_ns #(1) tlbelo1_g_reg (
+       .din   (tlbelo1_g_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_g_wen),
+       .clk   (clk),
+       .q     (tlbelo1_g)
+   );
+   
+   // ---------- PPN (bits 27:8) ----------
+   wire [19:0] tlbelo1_ppn;
+   wire        tlbelo1_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo1_wen;
+   wire [19:0] tlbelo1_ppn_in = (tlbelo1_ppn & ~csr_mask[`TLBELO_PPN]) |
+                                 (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]);
+   
+   dffrle_ns #(20) tlbelo1_ppn_reg (
+       .din   (tlbelo1_ppn_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_ppn_wen),
+       .clk   (clk),
+       .q     (tlbelo1_ppn)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign tlbelo1 = {
+       4'b0,               // [31:28] reserved
+       tlbelo1_ppn,        // [27:8]
+       1'b0,               // [7] reserved
+       tlbelo1_g,          // [6]
+       tlbelo1_mat,        // [5:4]
+       tlbelo1_plv,        // [3:2]
+       tlbelo1_d,          // [1]
+       tlbelo1_v           // [0]
+   };
+
+   assign csr_tlbelo1_ppn = tlbelo1_ppn;
+   assign csr_tlbelo1_g = tlbelo1_g;
+   assign csr_tlbelo1_mat = tlbelo1_mat;
+   assign csr_tlbelo1_plv = tlbelo1_plv;
+   assign csr_tlbelo1_d = tlbelo1_d;
+   assign csr_tlbelo1_v = tlbelo1_v;
+
+
+   //
+   //  PGDL 0x19
+   //  Fields:
+   //    [31:12] BASE  (20 bits)
+   //    [11:0]  reserved (0)
+   //
+   
+   wire [31:0] pgdl;
+   wire        pgdl_wen;
+   assign pgdl_wen = (csr_waddr == `LCSR_PGDL) && csr_wen;
+   
+   // ---------- BASE (bits 31:12) ----------
+   wire [19:0] pgdl_base;
+   wire        pgdl_base_wen = |csr_mask[`PGDL_BASE] & pgdl_wen;
+   wire [19:0] pgdl_base_in = (pgdl_base & ~csr_mask[`PGDL_BASE]) |
+                              (csr_wdata[`PGDL_BASE] & csr_mask[`PGDL_BASE]);
+   
+   dffrle_ns #(20) pgdl_base_reg (
+       .din   (pgdl_base_in),
+       .rst_l (resetn),
+       .en    (pgdl_base_wen),
+       .clk   (clk),
+       .q     (pgdl_base)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign pgdl = {
+       pgdl_base,   // [31:12]
+       12'b0        // [11:0] reserved
+   };
+
+
+   //
+   //  PGDH 0x1a
+   //  Fields:
+   //    [31:12] BASE  (20 bits)
+   //    [11:0]  reserved (0)
+   //
+   
+   wire [31:0] pgdh;
+   wire        pgdh_wen;
+   assign pgdh_wen = (csr_waddr == `LCSR_PGDH) && csr_wen;
+   
+   // ---------- BASE (bits 31:12) ----------
+   wire [19:0] pgdh_base;
+   wire        pgdh_base_wen = |csr_mask[`PGDH_BASE] & pgdh_wen;
+   wire [19:0] pgdh_base_in = (pgdh_base & ~csr_mask[`PGDH_BASE]) |
+                              (csr_wdata[`PGDH_BASE] & csr_mask[`PGDH_BASE]);
+   
+   dffrle_ns #(20) pgdh_base_reg (
+       .din   (pgdh_base_in),
+       .rst_l (resetn),
+       .en    (pgdh_base_wen),
+       .clk   (clk),
+       .q     (pgdh_base)
+   );
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign pgdh = {
+       pgdh_base,   // [31:12]
+       12'b0        // [11:0] reserved
+   };
+
+
+   //
+   //  PGD 0x1b
+   //
+
+   wire [31:0] pgd;
+
+   assign pgd = badv[31] ? pgdh : pgdl;
+
+
+   //
    //  SAVE0 0x30
    //
 
@@ -373,12 +812,13 @@ module c7bcsr (
    assign save0_nxt = (save0 & (~csr_mask)) | (csr_wdata & csr_mask);
    assign save0_wen = (csr_waddr == `LCSR_SAVE0) && csr_wen;
 
-   dffe_ns #(32) save0_reg (
+   dffrle_ns #(32) save0_reg (
       .din   (save0_nxt),
-      //.rst_l (resetn),
+      .rst_l (resetn),
       .en    (save0_wen),
       .clk   (clk),
       .q     (save0));
+
 
    //
    //  SAVE1 0x31
@@ -391,9 +831,9 @@ module c7bcsr (
    assign save1_nxt = (save1 & (~csr_mask)) | (csr_wdata & csr_mask);
    assign save1_wen = (csr_waddr == `LCSR_SAVE1) && csr_wen;
 
-   dffe_ns #(32) save1_reg (
+   dffrle_ns #(32) save1_reg (
       .din   (save1_nxt),
-      //.rst_l (resetn),
+      .rst_l (resetn),
       .en    (save1_wen),
       .clk   (clk),
       .q     (save1));
@@ -409,9 +849,9 @@ module c7bcsr (
    assign save2_nxt = (save2 & (~csr_mask)) | (csr_wdata & csr_mask);
    assign save2_wen = (csr_waddr == `LCSR_SAVE2) && csr_wen;
 
-   dffe_ns #(32) save2_reg (
+   dffrle_ns #(32) save2_reg (
       .din   (save2_nxt),
-      //.rst_l (resetn),
+      .rst_l (resetn),
       .en    (save2_wen),
       .clk   (clk),
       .q     (save2));
@@ -427,9 +867,9 @@ module c7bcsr (
    assign save3_nxt = (save3 & (~csr_mask)) | (csr_wdata & csr_mask);
    assign save3_wen = (csr_waddr == `LCSR_SAVE3) && csr_wen;
 
-   dffe_ns #(32) save3_reg (
+   dffrle_ns #(32) save3_reg (
       .din   (save3_nxt),
-      //.rst_l (resetn),
+      .rst_l (resetn),
       .en    (save3_wen),
       .clk   (clk),
       .q     (save3));
@@ -1009,6 +1449,13 @@ module c7bcsr (
                           {32{csr_raddr == `LCSR_TLBREBASE}}& tlbrentry|
                           {32{csr_raddr == `LCSR_DMW0}}     & dmw0   |
                           {32{csr_raddr == `LCSR_DMW1}}     & dmw1   |
+                          {32{csr_raddr == `LCSR_TLBIDX}}   & tlbidx |
+                          {32{csr_raddr == `LCSR_TLBEHI}}   & tlbehi |
+                          {32{csr_raddr == `LCSR_TLBELO0}}  & tlbelo0|
+                          {32{csr_raddr == `LCSR_TLBELO1}}  & tlbelo1|
+                          {32{csr_raddr == `LCSR_PGDL}}     & pgdl   |
+                          {32{csr_raddr == `LCSR_PGDH}}     & pgdh   |
+                          {32{csr_raddr == `LCSR_PGD}}      & pgd    |
                           32'b0;
 
 
