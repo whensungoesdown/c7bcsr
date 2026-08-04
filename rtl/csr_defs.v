@@ -89,6 +89,7 @@
 // INDEX 0x0_1_0
 `define TLBIDX_NE    31
 `define TLBIDX_PS    29:24
+`define TLBIDX_I_D   16
 `define TLBIDX_INDEX 4:0
 
 // ENTRYHI 0x0_1_1
@@ -101,6 +102,10 @@
 `define TLBELO_PLV          3: 2
 `define TLBELO_D            1
 `define TLBELO_V            0
+
+// ASID 0x0_1_8  
+`define ASID_ASIDBITS       23:16
+`define ASID_ASID            9: 0
 
 // PGDL 0x0_1_9
 `define PGDL_BASE 31:12
@@ -212,9 +217,9 @@
 //`define LSOC1K_TLBELO_WE           1
 //`define LSOC1K_TLBELO_V            0
 
-// ASID 0x0_1_8  
-`define LSOC1K_ASID_ASIDBITS       23:16
-`define LSOC1K_ASID_ASID            9: 0
+//// ASID 0x0_1_8  
+//`define LSOC1K_ASID_ASIDBITS       23:16
+//`define LSOC1K_ASID_ASID            9: 0
 
 //// PGDL 0x0_1_9
 //`define LSOC1K_PGDL_BASE 31:12

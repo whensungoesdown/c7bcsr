@@ -27,6 +27,7 @@ module c7bcsr (
    input  [31:0]                  ecl_csr_badv_w,
    input                          exu_ifu_except,
    input  [5:0]                   ecl_csr_exccode_w,
+   input  [8:0]                   ecl_csr_excsubcode_w, 
    input  [31:0]                  ifu_exu_pc_w,
    input                          ecl_csr_ertn_w,
    input                          lsu_csr_llb_set,
@@ -50,6 +51,7 @@ module c7bcsr (
 
    output                         csr_tlbidx_ne,
    output [5:0]                   csr_tlbidx_ps,
+   output                         csr_tlbidx_i_d,
    output [4:0]                   csr_tlbidx_index,
 
    output [19:0]                  csr_tlbelo0_ppn,
@@ -66,7 +68,48 @@ module c7bcsr (
    output                         csr_tlbelo1_d,
    output                         csr_tlbelo1_v,
 
-   output                         csr_tlbrefill_ctx 
+   output [9:0]                   csr_asid_asid, 
+
+   output                         csr_tlbrefill_ctx,
+
+   input                          tlbrd_vld_e,
+   input                          tlbsrch_vld_m,
+
+   // itlb to csr
+   input  [4:0]                   itlb_csr_tlbidx_index,
+   input  [18:0]                  itlb_csr_tlbehi_vppn,
+   input                          itlb_csr_tlbelo_g,
+   input  [5:0]                   itlb_csr_tlbidx_ps,
+   input                          itlb_csr_tlbidx_e,
+   input                          itlb_csr_tlbelo0_v,
+   input                          itlb_csr_tlbelo0_d,
+   input  [1:0]                   itlb_csr_tlbelo0_mat,
+   input  [1:0]                   itlb_csr_tlbelo0_plv,
+   input  [19:0]                  itlb_csr_tlbelo0_ppn,
+   input                          itlb_csr_tlbelo1_v,
+   input                          itlb_csr_tlbelo1_d,
+   input  [1:0]                   itlb_csr_tlbelo1_mat,
+   input  [1:0]                   itlb_csr_tlbelo1_plv,
+   input  [19:0]                  itlb_csr_tlbelo1_ppn,
+   input  [9:0]                   itlb_csr_asid_asid,
+
+   // dtlb to csr
+   input  [4:0]                   dtlb_csr_tlbidx_index,
+   input  [18:0]                  dtlb_csr_tlbehi_vppn,
+   input                          dtlb_csr_tlbelo_g,
+   input  [5:0]                   dtlb_csr_tlbidx_ps,
+   input                          dtlb_csr_tlbidx_e,
+   input                          dtlb_csr_tlbelo0_v,
+   input                          dtlb_csr_tlbelo0_d,
+   input  [1:0]                   dtlb_csr_tlbelo0_mat,
+   input  [1:0]                   dtlb_csr_tlbelo0_plv,
+   input  [19:0]                  dtlb_csr_tlbelo0_ppn,
+   input                          dtlb_csr_tlbelo1_v,
+   input                          dtlb_csr_tlbelo1_d,
+   input  [1:0]                   dtlb_csr_tlbelo1_mat,
+   input  [1:0]                   dtlb_csr_tlbelo1_plv,
+   input  [19:0]                  dtlb_csr_tlbelo1_ppn,
+   input  [9:0]                   dtlb_csr_asid_asid
    );
 
 
@@ -391,70 +434,134 @@ module c7bcsr (
    //
    //  TLBIDX 0x10
    //  Fields:
-   //    [31]    NE   (1 bit)
+   //    [31]    NE   (1 bit)  0=valid, 1=invalid
    //    [30]    reserved (0)
    //    [29:24] PS   (6 bits)
-   //    [23:5]  reserved (0)
+   //    [23:17] reserved (0)
+   //    [16]    I_D  (1 bit)  0=ITLB, 1=DTLB
+   //    [15:5]  reserved (0)
    //    [4:0]   INDEX (5 bits)
+   //
+   //  On TLBRD instruction:
+   //    - NE is set to 0 if the TLB entry at INDEX is valid, else 1.
+   //    - PS is set to the page size from the TLB entry.
+   //    - INDEX and I_D remain unchanged.
+   //
+   //  On TLBSRCH instruction:
+   //    - Search result index is written to INDEX.
+   //    - NE is set to 0 if a match is found, else 1.
+   //    - PS and I_D remain unchanged.
+   //
+   //  Note: TLBRD and TLBSRCH are mutually exclusive in pipeline.
    //
    
    wire [31:0] tlbidx;
    wire        tlbidx_wen;
    assign tlbidx_wen = (csr_waddr == `LCSR_TLBIDX) && csr_wen;
    
-   // ---------- INDEX (bits 4:0) ----------
-   wire [4:0] tlbidx_index;
-   wire       tlbidx_index_wen = |csr_mask[`TLBIDX_INDEX] & tlbidx_wen;
-   wire [4:0] tlbidx_index_in = (tlbidx_index & ~csr_mask[`TLBIDX_INDEX]) |
-                                 (csr_wdata[`TLBIDX_INDEX] & csr_mask[`TLBIDX_INDEX]);
+   // --------------------------------------------------------------------
+   // I_D (bit 16) – writable, not affected by TLBRD/TLBSRCH
+   // --------------------------------------------------------------------
+   wire        tlbidx_i_d;
+   wire        tlbidx_i_d_wen = csr_mask[`TLBIDX_I_D] & tlbidx_wen;
+   wire        tlbidx_i_d_in = (tlbidx_i_d & ~csr_mask[`TLBIDX_I_D]) |
+                               (csr_wdata[`TLBIDX_I_D] & csr_mask[`TLBIDX_I_D]);
    
-   dffrle_ns #(5) tlbidx_index_reg (
-       .din   (tlbidx_index_in),
+   dffrle_ns #(1) tlbidx_i_d_reg (
+       .din   (tlbidx_i_d_in),
        .rst_l (resetn),
-       .en    (tlbidx_index_wen),
+       .en    (tlbidx_i_d_wen),
        .clk   (clk),
-       .q     (tlbidx_index)
+       .q     (tlbidx_i_d)
    );
    
-   // ---------- PS (bits 29:24) ----------
+   // --------------------------------------------------------------------
+   // PS (bits 29:24) – writable via CSR, or updated by TLBRD
+   // --------------------------------------------------------------------
    wire [5:0] tlbidx_ps;
    wire       tlbidx_ps_wen = |csr_mask[`TLBIDX_PS] & tlbidx_wen;
-   wire [5:0] tlbidx_ps_in = (tlbidx_ps & ~csr_mask[`TLBIDX_PS]) |
-                             (csr_wdata[`TLBIDX_PS] & csr_mask[`TLBIDX_PS]);
+   wire [5:0] tlbidx_ps_wdata = (tlbidx_ps & ~csr_mask[`TLBIDX_PS]) |
+                                 (csr_wdata[`TLBIDX_PS] & csr_mask[`TLBIDX_PS]);
+   
+   // TLBRD reads PS from the TLB entry (selected by I_D)
+   wire [5:0] tlbrd_ps_data = tlbidx_i_d ? dtlb_csr_tlbidx_ps : itlb_csr_tlbidx_ps;
+   
+   wire [5:0] tlbidx_ps_in = tlbrd_vld_e ? tlbrd_ps_data : tlbidx_ps_wdata;
+   wire       tlbidx_ps_en  = tlbidx_ps_wen | tlbrd_vld_e;
    
    dffrle_ns #(6) tlbidx_ps_reg (
        .din   (tlbidx_ps_in),
        .rst_l (resetn),
-       .en    (tlbidx_ps_wen),
+       .en    (tlbidx_ps_en),
        .clk   (clk),
        .q     (tlbidx_ps)
    );
    
-   // ---------- NE (bit 31) ----------
+   // --------------------------------------------------------------------
+   // NE (bit 31) – writable via CSR, or updated by TLBRD/TLBSRCH
+   // --------------------------------------------------------------------
    wire        tlbidx_ne;
    wire        tlbidx_ne_wen = csr_mask[`TLBIDX_NE] & tlbidx_wen;
-   wire        tlbidx_ne_in = csr_wdata[`TLBIDX_NE] & csr_mask[`TLBIDX_NE];
+   wire        tlbidx_ne_wdata = csr_wdata[`TLBIDX_NE] & csr_mask[`TLBIDX_NE];
+   
+   // Common NE data: 0 if selected TLB entry is valid, else 1
+   // Works for both TLBRD (reads entry at INDEX) and TLBSRCH (uses search result)
+   wire tlb_ne_data = ~(tlbidx_i_d ? dtlb_csr_tlbidx_e : itlb_csr_tlbidx_e);
+   
+   // Priority: TLBSRCH → TLBRD → CSR write
+   wire        tlbidx_ne_in = tlbsrch_vld_m ? tlb_ne_data :
+                              (tlbrd_vld_e  ? tlb_ne_data :
+                              tlbidx_ne_wdata);
+   wire        tlbidx_ne_en = tlbidx_ne_wen | tlbrd_vld_e | tlbsrch_vld_m;
    
    dffrle_ns #(1) tlbidx_ne_reg (
        .din   (tlbidx_ne_in),
        .rst_l (resetn),
-       .en    (tlbidx_ne_wen),
+       .en    (tlbidx_ne_en),
        .clk   (clk),
        .q     (tlbidx_ne)
    );
+
+   // --------------------------------------------------------------------
+   // INDEX (bits 4:0) – writable via CSR, or updated by TLBSRCH
+   // --------------------------------------------------------------------
+   wire [4:0] tlbidx_index;
+   wire       tlbidx_index_wen = |csr_mask[`TLBIDX_INDEX] & tlbidx_wen;
+   wire [4:0] tlbidx_index_wdata = (tlbidx_index & ~csr_mask[`TLBIDX_INDEX]) |
+                                    (csr_wdata[`TLBIDX_INDEX] & csr_mask[`TLBIDX_INDEX]);
    
-   // ---------- Concatenate into full 32-bit register ----------
-   // Note: Most significant bit is NE, least significant is INDEX
+   // TLBSRCH writes the search result index (selected by I_D)
+   wire [4:0] tlbsrch_index_data = tlbidx_i_d ? dtlb_csr_tlbidx_index : itlb_csr_tlbidx_index;
+   wire [4:0] tlbidx_index_in = tlbsrch_vld_m ? tlbsrch_index_data : tlbidx_index_wdata;
+   //wire       tlbidx_index_en = tlbidx_index_wen | tlbsrch_vld_m;
+   //                                                 if no valid tlbentry
+   //                                                 found, index remains
+   wire       tlbidx_index_en = tlbidx_index_wen | (tlbsrch_vld_m & ~tlb_ne_data);
+   
+   dffrle_ns #(5) tlbidx_index_reg (
+       .din   (tlbidx_index_in),
+       .rst_l (resetn),
+       .en    (tlbidx_index_en),
+       .clk   (clk),
+       .q     (tlbidx_index)
+   );
+   
+   // --------------------------------------------------------------------
+   // Concatenate into full 32-bit register
+   // --------------------------------------------------------------------
    assign tlbidx = {
        tlbidx_ne,      // [31]
        1'b0,           // [30] reserved
        tlbidx_ps,      // [29:24]
-       19'b0,          // [23:5] reserved
+       7'b0,           // [23:17] reserved
+       tlbidx_i_d,     // [16]
+       11'b0,          // [15:5] reserved
        tlbidx_index    // [4:0]
    };
 
    assign csr_tlbidx_ne = tlbidx_ne;
    assign csr_tlbidx_ps = tlbidx_ps;
+   assign csr_tlbidx_i_d = tlbidx_i_d;
    assign csr_tlbidx_index = tlbidx_index;
 
 
@@ -464,6 +571,11 @@ module c7bcsr (
    //    [31:13] VPPN  (19 bits, virtual paired page number)
    //    [12:0]  reserved (0)
    //
+   //  On TLBRD instruction:
+   //    - If TLBIDX.I_D == 0: read from ITLB VPPN (if valid)
+   //    - If TLBIDX.I_D == 1: read from DTLB VPPN (if valid)
+   //    - If selected entry is invalid, VPPN is cleared to 0.
+   //
    
    wire [31:0] tlbehi;
    wire        tlbehi_wen;
@@ -472,13 +584,27 @@ module c7bcsr (
    // ---------- VPPN (bits 31:13) ----------
    wire [18:0] tlbehi_vppn;
    wire        tlbehi_vppn_wen = |csr_mask[`TLBEHI_VPPN] & tlbehi_wen;
-   wire [18:0] tlbehi_vppn_in = (tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
-                                 (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]);
+   
+   // TLBRD read data: select ITLB or DTLB based on TLBIDX.I_D,
+   // and clear if selected entry is invalid.
+   wire [18:0] tlbrd_vppn_data;
+   assign tlbrd_vppn_data = tlbidx_i_d ? 
+                            (dtlb_csr_tlbidx_e ? dtlb_csr_tlbehi_vppn : 19'b0) :
+                            (itlb_csr_tlbidx_e ? itlb_csr_tlbehi_vppn : 19'b0);
+   
+   // VPPN input: normal CSR write or TLBRD read (with invalid clearing)
+   wire [18:0] tlbehi_vppn_in;
+   assign tlbehi_vppn_in = tlbrd_vld_e ? tlbrd_vppn_data :
+                           ((tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
+                            (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]));
+   
+   // Write enable: normal CSR write OR TLBRD instruction
+   wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e;
    
    dffrle_ns #(19) tlbehi_vppn_reg (
        .din   (tlbehi_vppn_in),
        .rst_l (resetn),
-       .en    (tlbehi_vppn_wen),
+       .en    (tlbehi_vppn_en),
        .clk   (clk),
        .q     (tlbehi_vppn)
    );
@@ -504,90 +630,161 @@ module c7bcsr (
    //    [1]     D    (1 bit)
    //    [0]     V    (1 bit)
    //
+   //  On TLBRD instruction:
+   //    - If TLBIDX.I_D == 0: read from ITLB
+   //    - If TLBIDX.I_D == 1: read from DTLB
+   //    - If selected entry invalid (V=0), all fields are cleared.
+   //
    
    wire [31:0] tlbelo0;
    wire        tlbelo0_wen;
    assign tlbelo0_wen = (csr_waddr == `LCSR_TLBELO0) && csr_wen;
    
-   // ---------- V (bit 0) ----------
-   wire        tlbelo0_v;
-   wire        tlbelo0_v_wen = csr_mask[`TLBELO_V] & tlbelo0_wen;
-   wire        tlbelo0_v_in = csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V];
+   // ---------- PPN (bits 27:8) ----------
+   wire [19:0] tlbelo0_ppn;
+   wire        tlbelo0_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo0_wen;
    
-   dffrle_ns #(1) tlbelo0_v_reg (
-       .din   (tlbelo0_v_in),
+   // TLBRD read data: select ITLB or DTLB based on TLBIDX.I_D,
+   // and clear if selected entry is invalid.
+   wire [19:0] tlbrd_tlbelo0_ppn_data;
+   assign tlbrd_tlbelo0_ppn_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo0_ppn : 20'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo0_ppn : 20'b0);
+   
+   // PPN input: normal CSR write or TLBRD read
+   wire [19:0] tlbelo0_ppn_in;
+   assign tlbelo0_ppn_in = tlbrd_vld_e ? tlbrd_tlbelo0_ppn_data :
+                           ((tlbelo0_ppn & ~csr_mask[`TLBELO_PPN]) |
+                            (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]));
+   
+   wire tlbelo0_ppn_en = tlbelo0_ppn_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(20) tlbelo0_ppn_reg (
+       .din   (tlbelo0_ppn_in),
        .rst_l (resetn),
-       .en    (tlbelo0_v_wen),
+       .en    (tlbelo0_ppn_en),
        .clk   (clk),
-       .q     (tlbelo0_v)
-   );
-   
-   // ---------- D (bit 1) ----------
-   wire        tlbelo0_d;
-   wire        tlbelo0_d_wen = csr_mask[`TLBELO_D] & tlbelo0_wen;
-   wire        tlbelo0_d_in = csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D];
-   
-   dffrle_ns #(1) tlbelo0_d_reg (
-       .din   (tlbelo0_d_in),
-       .rst_l (resetn),
-       .en    (tlbelo0_d_wen),
-       .clk   (clk),
-       .q     (tlbelo0_d)
-   );
-   
-   // ---------- PLV (bits 3:2) ----------
-   wire [1:0] tlbelo0_plv;
-   wire       tlbelo0_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo0_wen;
-   wire [1:0] tlbelo0_plv_in = (tlbelo0_plv & ~csr_mask[`TLBELO_PLV]) |
-                                (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]);
-   
-   dffrle_ns #(2) tlbelo0_plv_reg (
-       .din   (tlbelo0_plv_in),
-       .rst_l (resetn),
-       .en    (tlbelo0_plv_wen),
-       .clk   (clk),
-       .q     (tlbelo0_plv)
-   );
-   
-   // ---------- MAT (bits 5:4) ----------
-   wire [1:0] tlbelo0_mat;
-   wire       tlbelo0_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo0_wen;
-   wire [1:0] tlbelo0_mat_in = (tlbelo0_mat & ~csr_mask[`TLBELO_MAT]) |
-                                (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]);
-   
-   dffrle_ns #(2) tlbelo0_mat_reg (
-       .din   (tlbelo0_mat_in),
-       .rst_l (resetn),
-       .en    (tlbelo0_mat_wen),
-       .clk   (clk),
-       .q     (tlbelo0_mat)
+       .q     (tlbelo0_ppn)
    );
    
    // ---------- G (bit 6) ----------
    wire        tlbelo0_g;
    wire        tlbelo0_g_wen = csr_mask[`TLBELO_G] & tlbelo0_wen;
-   wire        tlbelo0_g_in = csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G];
+   
+   wire        tlbrd_tlbelo0_g_data;
+   assign tlbrd_tlbelo0_g_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo_g : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo_g : 1'b0);
+   
+   wire        tlbelo0_g_in;
+   assign tlbelo0_g_in = tlbrd_vld_e ? tlbrd_tlbelo0_g_data :
+                         ((tlbelo0_g & ~csr_mask[`TLBELO_G]) |
+                          (csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G]));
+   
+   wire tlbelo0_g_en = tlbelo0_g_wen | tlbrd_vld_e;
    
    dffrle_ns #(1) tlbelo0_g_reg (
        .din   (tlbelo0_g_in),
        .rst_l (resetn),
-       .en    (tlbelo0_g_wen),
+       .en    (tlbelo0_g_en),
        .clk   (clk),
        .q     (tlbelo0_g)
    );
    
-   // ---------- PPN (bits 27:8) ----------
-   wire [19:0] tlbelo0_ppn;
-   wire        tlbelo0_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo0_wen;
-   wire [19:0] tlbelo0_ppn_in = (tlbelo0_ppn & ~csr_mask[`TLBELO_PPN]) |
-                                 (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]);
+   // ---------- MAT (bits 5:4) ----------
+   wire [1:0] tlbelo0_mat;
+   wire       tlbelo0_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo0_wen;
    
-   dffrle_ns #(20) tlbelo0_ppn_reg (
-       .din   (tlbelo0_ppn_in),
+   wire [1:0] tlbrd_tlbelo0_mat_data;
+   assign tlbrd_tlbelo0_mat_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo0_mat : 2'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo0_mat : 2'b0);
+   
+   wire [1:0] tlbelo0_mat_in;
+   assign tlbelo0_mat_in = tlbrd_vld_e ? tlbrd_tlbelo0_mat_data :
+                           ((tlbelo0_mat & ~csr_mask[`TLBELO_MAT]) |
+                            (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]));
+   
+   wire tlbelo0_mat_en = tlbelo0_mat_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(2) tlbelo0_mat_reg (
+       .din   (tlbelo0_mat_in),
        .rst_l (resetn),
-       .en    (tlbelo0_ppn_wen),
+       .en    (tlbelo0_mat_en),
        .clk   (clk),
-       .q     (tlbelo0_ppn)
+       .q     (tlbelo0_mat)
+   );
+   
+   // ---------- PLV (bits 3:2) ----------
+   wire [1:0] tlbelo0_plv;
+   wire       tlbelo0_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo0_wen;
+   
+   wire [1:0] tlbrd_tlbelo0_plv_data;
+   assign tlbrd_tlbelo0_plv_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo0_plv : 2'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo0_plv : 2'b0);
+   
+   wire [1:0] tlbelo0_plv_in;
+   assign tlbelo0_plv_in = tlbrd_vld_e ? tlbrd_tlbelo0_plv_data :
+                           ((tlbelo0_plv & ~csr_mask[`TLBELO_PLV]) |
+                            (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]));
+   
+   wire tlbelo0_plv_en = tlbelo0_plv_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(2) tlbelo0_plv_reg (
+       .din   (tlbelo0_plv_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_plv_en),
+       .clk   (clk),
+       .q     (tlbelo0_plv)
+   );
+   
+   // ---------- D (bit 1) ----------
+   wire        tlbelo0_d;
+   wire        tlbelo0_d_wen = csr_mask[`TLBELO_D] & tlbelo0_wen;
+   
+   wire        tlbrd_tlbelo0_d_data;
+   assign tlbrd_tlbelo0_d_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo0_d : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo0_d : 1'b0);
+   
+   wire        tlbelo0_d_in;
+   assign tlbelo0_d_in = tlbrd_vld_e ? tlbrd_tlbelo0_d_data :
+                         ((tlbelo0_d & ~csr_mask[`TLBELO_D]) |
+                          (csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D]));
+   
+   wire tlbelo0_d_en = tlbelo0_d_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(1) tlbelo0_d_reg (
+       .din   (tlbelo0_d_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_d_en),
+       .clk   (clk),
+       .q     (tlbelo0_d)
+   );
+   
+   // ---------- V (bit 0) ----------
+   wire        tlbelo0_v;
+   wire        tlbelo0_v_wen = csr_mask[`TLBELO_V] & tlbelo0_wen;
+   
+   wire        tlbrd_tlbelo0_v_data;
+   assign tlbrd_tlbelo0_v_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo0_v : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo0_v : 1'b0);
+   
+   wire        tlbelo0_v_in;
+   assign tlbelo0_v_in = tlbrd_vld_e ? tlbrd_tlbelo0_v_data :
+                         ((tlbelo0_v & ~csr_mask[`TLBELO_V]) |
+                          (csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V]));
+   
+   wire tlbelo0_v_en = tlbelo0_v_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(1) tlbelo0_v_reg (
+       .din   (tlbelo0_v_in),
+       .rst_l (resetn),
+       .en    (tlbelo0_v_en),
+       .clk   (clk),
+       .q     (tlbelo0_v)
    );
    
    // ---------- Concatenate into full 32-bit register ----------
@@ -622,90 +819,161 @@ module c7bcsr (
    //    [1]     D    (1 bit)
    //    [0]     V    (1 bit)
    //
+   //  On TLBRD instruction:
+   //    - If TLBIDX.I_D == 0: read from ITLB
+   //    - If TLBIDX.I_D == 1: read from DTLB
+   //    - If selected entry invalid (V=0), all fields are cleared.
+   //
    
    wire [31:0] tlbelo1;
    wire        tlbelo1_wen;
    assign tlbelo1_wen = (csr_waddr == `LCSR_TLBELO1) && csr_wen;
    
-   // ---------- V (bit 0) ----------
-   wire        tlbelo1_v;
-   wire        tlbelo1_v_wen = csr_mask[`TLBELO_V] & tlbelo1_wen;
-   wire        tlbelo1_v_in = csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V];
+   // ---------- PPN (bits 27:8) ----------
+   wire [19:0] tlbelo1_ppn;
+   wire        tlbelo1_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo1_wen;
    
-   dffrle_ns #(1) tlbelo1_v_reg (
-       .din   (tlbelo1_v_in),
+   // TLBRD read data: select ITLB or DTLB based on TLBIDX.I_D,
+   // and clear if selected entry is invalid.
+   wire [19:0] tlbrd_tlbelo1_ppn_data;
+   assign tlbrd_tlbelo1_ppn_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo1_ppn : 20'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo1_ppn : 20'b0);
+   
+   // PPN input: normal CSR write or TLBRD read
+   wire [19:0] tlbelo1_ppn_in;
+   assign tlbelo1_ppn_in = tlbrd_vld_e ? tlbrd_tlbelo1_ppn_data :
+                           ((tlbelo1_ppn & ~csr_mask[`TLBELO_PPN]) |
+                            (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]));
+   
+   wire tlbelo1_ppn_en = tlbelo1_ppn_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(20) tlbelo1_ppn_reg (
+       .din   (tlbelo1_ppn_in),
        .rst_l (resetn),
-       .en    (tlbelo1_v_wen),
+       .en    (tlbelo1_ppn_en),
        .clk   (clk),
-       .q     (tlbelo1_v)
-   );
-   
-   // ---------- D (bit 1) ----------
-   wire        tlbelo1_d;
-   wire        tlbelo1_d_wen = csr_mask[`TLBELO_D] & tlbelo1_wen;
-   wire        tlbelo1_d_in = csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D];
-   
-   dffrle_ns #(1) tlbelo1_d_reg (
-       .din   (tlbelo1_d_in),
-       .rst_l (resetn),
-       .en    (tlbelo1_d_wen),
-       .clk   (clk),
-       .q     (tlbelo1_d)
-   );
-   
-   // ---------- PLV (bits 3:2) ----------
-   wire [1:0] tlbelo1_plv;
-   wire       tlbelo1_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo1_wen;
-   wire [1:0] tlbelo1_plv_in = (tlbelo1_plv & ~csr_mask[`TLBELO_PLV]) |
-                                (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]);
-   
-   dffrle_ns #(2) tlbelo1_plv_reg (
-       .din   (tlbelo1_plv_in),
-       .rst_l (resetn),
-       .en    (tlbelo1_plv_wen),
-       .clk   (clk),
-       .q     (tlbelo1_plv)
-   );
-   
-   // ---------- MAT (bits 5:4) ----------
-   wire [1:0] tlbelo1_mat;
-   wire       tlbelo1_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo1_wen;
-   wire [1:0] tlbelo1_mat_in = (tlbelo1_mat & ~csr_mask[`TLBELO_MAT]) |
-                                (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]);
-   
-   dffrle_ns #(2) tlbelo1_mat_reg (
-       .din   (tlbelo1_mat_in),
-       .rst_l (resetn),
-       .en    (tlbelo1_mat_wen),
-       .clk   (clk),
-       .q     (tlbelo1_mat)
+       .q     (tlbelo1_ppn)
    );
    
    // ---------- G (bit 6) ----------
    wire        tlbelo1_g;
    wire        tlbelo1_g_wen = csr_mask[`TLBELO_G] & tlbelo1_wen;
-   wire        tlbelo1_g_in = csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G];
+   
+   wire        tlbrd_tlbelo1_g_data;
+   assign tlbrd_tlbelo1_g_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo_g : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo_g : 1'b0);
+   
+   wire        tlbelo1_g_in;
+   assign tlbelo1_g_in = tlbrd_vld_e ? tlbrd_tlbelo1_g_data :
+                         ((tlbelo1_g & ~csr_mask[`TLBELO_G]) |
+                          (csr_wdata[`TLBELO_G] & csr_mask[`TLBELO_G]));
+   
+   wire tlbelo1_g_en = tlbelo1_g_wen | tlbrd_vld_e;
    
    dffrle_ns #(1) tlbelo1_g_reg (
        .din   (tlbelo1_g_in),
        .rst_l (resetn),
-       .en    (tlbelo1_g_wen),
+       .en    (tlbelo1_g_en),
        .clk   (clk),
        .q     (tlbelo1_g)
    );
    
-   // ---------- PPN (bits 27:8) ----------
-   wire [19:0] tlbelo1_ppn;
-   wire        tlbelo1_ppn_wen = |csr_mask[`TLBELO_PPN] & tlbelo1_wen;
-   wire [19:0] tlbelo1_ppn_in = (tlbelo1_ppn & ~csr_mask[`TLBELO_PPN]) |
-                                 (csr_wdata[`TLBELO_PPN] & csr_mask[`TLBELO_PPN]);
+   // ---------- MAT (bits 5:4) ----------
+   wire [1:0] tlbelo1_mat;
+   wire       tlbelo1_mat_wen = |csr_mask[`TLBELO_MAT] & tlbelo1_wen;
    
-   dffrle_ns #(20) tlbelo1_ppn_reg (
-       .din   (tlbelo1_ppn_in),
+   wire [1:0] tlbrd_tlbelo1_mat_data;
+   assign tlbrd_tlbelo1_mat_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo1_mat : 2'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo1_mat : 2'b0);
+   
+   wire [1:0] tlbelo1_mat_in;
+   assign tlbelo1_mat_in = tlbrd_vld_e ? tlbrd_tlbelo1_mat_data :
+                           ((tlbelo1_mat & ~csr_mask[`TLBELO_MAT]) |
+                            (csr_wdata[`TLBELO_MAT] & csr_mask[`TLBELO_MAT]));
+   
+   wire tlbelo1_mat_en = tlbelo1_mat_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(2) tlbelo1_mat_reg (
+       .din   (tlbelo1_mat_in),
        .rst_l (resetn),
-       .en    (tlbelo1_ppn_wen),
+       .en    (tlbelo1_mat_en),
        .clk   (clk),
-       .q     (tlbelo1_ppn)
+       .q     (tlbelo1_mat)
+   );
+   
+   // ---------- PLV (bits 3:2) ----------
+   wire [1:0] tlbelo1_plv;
+   wire       tlbelo1_plv_wen = |csr_mask[`TLBELO_PLV] & tlbelo1_wen;
+   
+   wire [1:0] tlbrd_tlbelo1_plv_data;
+   assign tlbrd_tlbelo1_plv_data = tlbidx_i_d ?
+                           (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo1_plv : 2'b0) :
+                           (itlb_csr_tlbidx_e ? itlb_csr_tlbelo1_plv : 2'b0);
+   
+   wire [1:0] tlbelo1_plv_in;
+   assign tlbelo1_plv_in = tlbrd_vld_e ? tlbrd_tlbelo1_plv_data :
+                           ((tlbelo1_plv & ~csr_mask[`TLBELO_PLV]) |
+                            (csr_wdata[`TLBELO_PLV] & csr_mask[`TLBELO_PLV]));
+   
+   wire tlbelo1_plv_en = tlbelo1_plv_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(2) tlbelo1_plv_reg (
+       .din   (tlbelo1_plv_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_plv_en),
+       .clk   (clk),
+       .q     (tlbelo1_plv)
+   );
+   
+   // ---------- D (bit 1) ----------
+   wire        tlbelo1_d;
+   wire        tlbelo1_d_wen = csr_mask[`TLBELO_D] & tlbelo1_wen;
+   
+   wire        tlbrd_tlbelo1_d_data;
+   assign tlbrd_tlbelo1_d_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo1_d : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo1_d : 1'b0);
+   
+   wire        tlbelo1_d_in;
+   assign tlbelo1_d_in = tlbrd_vld_e ? tlbrd_tlbelo1_d_data :
+                         ((tlbelo1_d & ~csr_mask[`TLBELO_D]) |
+                          (csr_wdata[`TLBELO_D] & csr_mask[`TLBELO_D]));
+   
+   wire tlbelo1_d_en = tlbelo1_d_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(1) tlbelo1_d_reg (
+       .din   (tlbelo1_d_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_d_en),
+       .clk   (clk),
+       .q     (tlbelo1_d)
+   );
+   
+   // ---------- V (bit 0) ----------
+   wire        tlbelo1_v;
+   wire        tlbelo1_v_wen = csr_mask[`TLBELO_V] & tlbelo1_wen;
+   
+   wire        tlbrd_tlbelo1_v_data;
+   assign tlbrd_tlbelo1_v_data = tlbidx_i_d ?
+                         (dtlb_csr_tlbidx_e ? dtlb_csr_tlbelo1_v : 1'b0) :
+                         (itlb_csr_tlbidx_e ? itlb_csr_tlbelo1_v : 1'b0);
+   
+   wire        tlbelo1_v_in;
+   assign tlbelo1_v_in = tlbrd_vld_e ? tlbrd_tlbelo1_v_data :
+                         ((tlbelo1_v & ~csr_mask[`TLBELO_V]) |
+                          (csr_wdata[`TLBELO_V] & csr_mask[`TLBELO_V]));
+   
+   wire tlbelo1_v_en = tlbelo1_v_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(1) tlbelo1_v_reg (
+       .din   (tlbelo1_v_in),
+       .rst_l (resetn),
+       .en    (tlbelo1_v_en),
+       .clk   (clk),
+       .q     (tlbelo1_v)
    );
    
    // ---------- Concatenate into full 32-bit register ----------
@@ -727,6 +995,64 @@ module c7bcsr (
    assign csr_tlbelo1_d = tlbelo1_d;
    assign csr_tlbelo1_v = tlbelo1_v;
 
+
+   //
+   //  ASID 0x18
+   //  Fields:
+   //    [31:24] reserved (0)
+   //    [23:16] ASIDBits (8 bits, fixed value 10)
+   //    [15:10] reserved (0)
+   //    [9:0]   ASID (10 bits)
+   //
+   //  On TLBRD instruction:
+   //    - ASID is read from ITLB or DTLB based on TLBIDX.I_D.
+   //    - If the selected entry is invalid (e=0), ASID is cleared to 0.
+   //    - ASIDBits is a constant and not affected by TLBRD.
+   //
+   
+   wire [31:0] asid;
+   wire        asid_wen;
+   assign asid_wen = (csr_waddr == `LCSR_ASID) && csr_wen;
+   
+   // ---------- ASID (bits 9:0) ----------
+   wire [9:0] asid_asid;
+   wire       asid_asid_wen = |csr_mask[`ASID_ASID] & asid_wen;
+   
+   // TLBRD read data: select ITLB or DTLB based on TLBIDX.I_D,
+   // and clear if selected entry is invalid.
+   wire [9:0] tlbrd_asid_data;
+   assign tlbrd_asid_data = tlbidx_i_d ?
+                            (dtlb_csr_tlbidx_e ? dtlb_csr_asid_asid : 10'b0) :
+                            (itlb_csr_tlbidx_e ? itlb_csr_asid_asid : 10'b0);
+   
+   // ASID input: normal CSR write or TLBRD read
+   wire [9:0] asid_asid_in;
+   assign asid_asid_in = tlbrd_vld_e ? tlbrd_asid_data :
+                         ((asid_asid & ~csr_mask[`ASID_ASID]) |
+                          (csr_wdata[`ASID_ASID] & csr_mask[`ASID_ASID]));
+   
+   wire asid_asid_en = asid_asid_wen | tlbrd_vld_e;
+   
+   dffrle_ns #(10) asid_asid_reg (
+       .din   (asid_asid_in),
+       .rst_l (resetn),
+       .en    (asid_asid_en),
+       .clk   (clk),
+       .q     (asid_asid)
+   );
+   
+   // ---------- ASIDBits (bits 23:16) - constant 10 ----------
+   wire [7:0] asid_asidbits = 8'd10;
+   
+   // ---------- Concatenate into full 32-bit register ----------
+   assign asid = {
+       8'b0,               // [31:24] reserved
+       asid_asidbits,      // [23:16]
+       6'b0,               // [15:10] reserved
+       asid_asid           // [9:0]
+   };
+
+   assign csr_asid_asid = asid_asid;
 
    //
    //  PGDL 0x19
@@ -1153,7 +1479,7 @@ module c7bcsr (
    // not control data, only for query, no need reset
    //  need reset, if there is no exception happened before, the estat contains x
    dffrle_ns #(9) estat_esubcode_reg (
-      .din   (9'b0),
+      .din   (ecl_csr_excsubcode_w),
       .rst_l (resetn),
       .en    (exception), 
       .clk   (clk),
@@ -1456,6 +1782,7 @@ module c7bcsr (
                           {32{csr_raddr == `LCSR_PGDL}}     & pgdl   |
                           {32{csr_raddr == `LCSR_PGDH}}     & pgdh   |
                           {32{csr_raddr == `LCSR_PGD}}      & pgd    |
+                          {32{csr_raddr == `LCSR_ASID}}     & asid   |
                           32'b0;
 
 
