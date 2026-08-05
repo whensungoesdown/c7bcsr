@@ -356,10 +356,20 @@ module c7bcsr (
    wire [31:0]        era_wdata;
    wire [31:0]        era_nxt;
    wire               era_wen;
+   wire era_exception_wen;
 
    assign era_wen = (csr_waddr == `LCSR_EPC) && csr_wen;  // EPC is ERA
-
    assign era_wdata = (era & (~csr_mask)) | (csr_wdata & csr_mask);
+
+   //
+   // Only record the exception address ifu_exu_pc_w when it is non-zero.
+   // This prevents logging exceptions that occur when the pipeline is flushed
+   // and no valid instruction is present. For example, a TLBR exception that
+   // installs a TLB entry with V=0 will cause a PIF exception on the
+   // subsequent fetch. Since the fetch fails, the pipeline PC becomes zero;
+   // capturing this exception would be incorrect and should be suppressed.
+   //
+   assign era_exception_wen = exception & (|ifu_exu_pc_w);
 
    dp_mux2es #(32) era_mux(
       .dout (era_nxt),
@@ -370,7 +380,8 @@ module c7bcsr (
    dffrle_ns #(32) era_reg (
       .din   (era_nxt),
       .rst_l (resetn),
-      .en    (era_wen | exception),
+      //.en    (era_wen | exception),
+      .en    (era_wen | era_exception_wen),
       .clk   (clk),
       .q     (era));
       //.se(), .si(), .so());
