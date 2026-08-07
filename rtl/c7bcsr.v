@@ -35,6 +35,7 @@ module c7bcsr (
 
    output                         csr_lsu_llb,
    output                         csr_ecl_crmd_ie,
+   output [1:0]                   csr_crmd_plv,
    output                         csr_crmd_da,
    output                         csr_crmd_pg,
    output [2:0]                   csr_dmw0_pseg,
@@ -289,6 +290,8 @@ module c7bcsr (
 		 crmd_ie,
 		 crmd_plv
 		 };
+
+   assign csr_crmd_plv = crmd_plv;
 
 
    //
