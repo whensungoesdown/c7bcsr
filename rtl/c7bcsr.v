@@ -247,22 +247,51 @@ module c7bcsr (
    // - TLB refill exception: 1
    // - ERTN from TLB refill: 0
    // - Normal write: csr_wdata
-   wire crmd_da_din = (~resetn)                 ? 1'b1 :
-                      tlbr_exception            ? 1'b1 :
+   //wire crmd_da_din = (~resetn)                 ? 1'b1 :
+   //                   tlbr_exception            ? 1'b1 :
+   //                   ertn_tlbr_excep           ? 1'b0 :
+   //                   csr_wdata[`CRMD_DA];
+
+   wire crmd_da_din = tlbr_exception            ? 1'b1 :
                       ertn_tlbr_excep           ? 1'b0 :
                       csr_wdata[`CRMD_DA];
 
    // Enable: write OR exception OR ERTN from TLB refill OR reset
-   wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep | (~resetn);
+   //wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep | (~resetn);
+   wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep;
 
-   // da should be 1'b1 after reset
-   dffe_ns #(1) crmd_da_reg (
-       .din   (crmd_da_din),
-       //.rst_l (resetn),
-       .en    (crmd_da_en),
-       .clk   (clk),
-       .q     (crmd_da)
+   //// da should be 1'b1 after reset
+   //dffe_ns #(1) crmd_da_reg (
+   //    .din   (crmd_da_din),
+   //    //.rst_l (resetn),
+   //    .en    (crmd_da_en),
+   //    .clk   (clk),
+   //    .q     (crmd_da)
+   //);
+
+   dffrle_rstval #(.WIDTH(1), .RST_VAL(1'b1)) crmd_da_reg (
+      .clk   (clk),
+      .rst_l (resetn),
+      .en    (crmd_da_en),
+      .din   (crmd_da_din),
+      .q     (crmd_da)
    );
+
+   // 同步复位
+   //always @(posedge clk) begin
+   //   if (!resetn)
+   //      crmd_da <= 1'b1;
+   //   else if (crmd_da_en)
+   //      crmd_da <= crmd_da_din;
+   //end
+
+   // 异步复位，低有效，复位值为 1
+   //always @(posedge clk or negedge resetn) begin
+   //   if (!resetn)
+   //      crmd_da <= 1'b1;
+   //   else if (crmd_da_en)
+   //      crmd_da <= crmd_da_din;
+   //end
    
    // PG next value:
    // - TLB refill exception -> 0
