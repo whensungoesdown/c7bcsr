@@ -231,6 +231,11 @@ module c7bcsr (
 
    assign csr_tlbrefill_ctx = tlbrefill_ctx;
 
+   wire pil_exception = exception & (ecl_csr_exccode_w == 6'h1); // estat_ecode is one cycle late
+   wire pis_exception = exception & (ecl_csr_exccode_w == 6'h2); // estat_ecode is one cycle late
+   wire pif_exception = exception & (ecl_csr_exccode_w == 6'h3); // estat_ecode is one cycle late
+   wire pme_exception = exception & (ecl_csr_exccode_w == 6'h4); // estat_ecode is one cycle late
+   wire ppi_exception = exception & (ecl_csr_exccode_w == 6'h7); // estat_ecode is one cycle late
 
    // CRMD.DA (bit[3]) and CRMD.PG (bit[4])
    // Reset: DA=1, PG=0 (direct mode)
@@ -619,6 +624,9 @@ module c7bcsr (
    //    - If TLBIDX.I_D == 1: read from DTLB VPPN (if valid)
    //    - If selected entry is invalid, VPPN is cleared to 0.
    //
+   //  On TLB-related exceptions (tlbr, pil, pis, pif, pme, ppi):
+   //    - VPPN is updated with badv[31:13] (faulting virtual address page number).
+   //
    
    wire [31:0] tlbehi;
    wire        tlbehi_wen;
@@ -637,12 +645,16 @@ module c7bcsr (
    
    // VPPN input: normal CSR write or TLBRD read (with invalid clearing)
    wire [18:0] tlbehi_vppn_in;
-   assign tlbehi_vppn_in = tlbrd_vld_e ? tlbrd_vppn_data :
+   assign tlbehi_vppn_in = tlbehi_exception_wr ? badv[31:13] :
+                           tlbrd_vld_e ? tlbrd_vppn_data :
                            ((tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
                             (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]));
    
+   wire tlbehi_exception_wr = tlbr_exception | pil_exception | pis_exception |
+                               pif_exception | pme_exception | ppi_exception;
+
    // Write enable: normal CSR write OR TLBRD instruction
-   wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e;
+   wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e | tlbehi_exception_wr;
    
    dffrle_ns #(19) tlbehi_vppn_reg (
        .din   (tlbehi_vppn_in),
