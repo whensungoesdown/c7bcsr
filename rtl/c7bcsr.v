@@ -643,15 +643,15 @@ module c7bcsr (
                             (dtlb_csr_tlbidx_e ? dtlb_csr_tlbehi_vppn : 19'b0) :
                             (itlb_csr_tlbidx_e ? itlb_csr_tlbehi_vppn : 19'b0);
    
+   wire tlbehi_exception_wr = tlbr_exception | pil_exception | pis_exception |
+                               pif_exception | pme_exception | ppi_exception;
+
    // VPPN input: normal CSR write or TLBRD read (with invalid clearing)
    wire [18:0] tlbehi_vppn_in;
    assign tlbehi_vppn_in = tlbehi_exception_wr ? badv[31:13] :
                            tlbrd_vld_e ? tlbrd_vppn_data :
                            ((tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
                             (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]));
-   
-   wire tlbehi_exception_wr = tlbr_exception | pil_exception | pis_exception |
-                               pif_exception | pme_exception | ppi_exception;
 
    // Write enable: normal CSR write OR TLBRD instruction
    wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e | tlbehi_exception_wr;
