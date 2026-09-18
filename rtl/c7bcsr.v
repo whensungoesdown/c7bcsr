@@ -25,7 +25,7 @@ module c7bcsr (
    output [31:0]                  csr_era,
    output [31:0]                  csr_tlbrentry,
    input  [31:0]                  ecl_csr_badv_w,
-   input                          exu_ifu_except,
+   input                          exu_csr_except_w,
    input  [5:0]                   ecl_csr_exccode_w,
    input  [8:0]                   ecl_csr_excsubcode_w, 
    input  [31:0]                  ifu_exu_pc_w,
@@ -116,9 +116,9 @@ module c7bcsr (
 
    wire [31:0] csr_reg_rdata;
 
-   wire exception;
+   //wire exception;
 
-   assign exception = exu_ifu_except; // when to store era, the timing is decided by ecl
+   //assign exception = exu_csr_except_w; // when to store era, the timing is decided by ecl
 
    wire               prmd_pie;
    wire               prmd_pie_wdata;
@@ -153,14 +153,14 @@ module c7bcsr (
 //      .dout (crmd_ie_nxt),
 //      .in0  (crmd_ie_wdata),
 //      .in1  (1'b0),
-//      .sel  (exception));
+//      .sel  (exu_csr_except_w));
 
    wire crmd_ie_mux_sel_wdata_l;
    wire crmd_ie_mux_sel_zero_l;
    wire crmd_ie_mux_sel_prmdpie_l;
    
    assign crmd_ie_mux_sel_wdata_l = ~crmd_wen;
-   assign crmd_ie_mux_sel_zero_l = ~exception;
+   assign crmd_ie_mux_sel_zero_l = ~exu_csr_except_w;
    assign crmd_ie_mux_sel_prmdpie_l = ~ecl_csr_ertn_w;
    
    dp_mux3ds #(1) crmd_ie_mux(
@@ -175,7 +175,7 @@ module c7bcsr (
    dffrle_ns #(1) crmd_ie_reg (
       .din   (crmd_ie_nxt),
       .rst_l (resetn),
-      .en    (crmd_ie_msk_wen | exception | ecl_csr_ertn_w),
+      .en    (crmd_ie_msk_wen | exu_csr_except_w | ecl_csr_ertn_w),
       .clk   (clk),
       .q     (crmd_ie));
       //.se(), .si(), .so());
@@ -196,14 +196,14 @@ module c7bcsr (
 //      .dout (crmd_plv_nxt),
 //      .in0  (crmd_plv_wdata),
 //      .in1  (2'b0),
-//      .sel  (exception));
+//      .sel  (exu_csr_except_w));
 
    wire crmd_plv_mux_sel_wdata_l;
    wire crmd_plv_mux_sel_zero_l;
    wire crmd_plv_mux_sel_prmdpplv_l;
 
    assign crmd_plv_mux_sel_wdata_l = ~crmd_wen;
-   assign crmd_plv_mux_sel_zero_l = ~exception;
+   assign crmd_plv_mux_sel_zero_l = ~exu_csr_except_w;
    assign crmd_plv_mux_sel_prmdpplv_l = ~ecl_csr_ertn_w;
   
    dp_mux3ds #(2) crmd_plv_mux(
@@ -218,7 +218,7 @@ module c7bcsr (
    dffrle_ns #(2) crmd_plv_reg (
       .din   (crmd_plv_nxt),
       .rst_l (resetn),
-      .en    (crmd_plv_msk_wen | exception | ecl_csr_ertn_w),
+      .en    (crmd_plv_msk_wen | exu_csr_except_w | ecl_csr_ertn_w),
       .clk   (clk),
       .q     (crmd_plv));
       //.se(), .si(), .so());
@@ -226,20 +226,20 @@ module c7bcsr (
 
    // `EXC_TLBR 6'h3f
    wire tlbrefill_ctx = estat_ecode == 6'h3f;
-   wire tlbr_exception = exception & (ecl_csr_exccode_w == 6'h3f); // estat_ecode is one cycle late
+   wire tlbr_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h3f); // estat_ecode is one cycle late
    wire ertn_tlbr_excep = ecl_csr_ertn_w & tlbrefill_ctx;
 
    assign csr_tlbrefill_ctx = tlbrefill_ctx;
 
-   wire pil_exception = exception & (ecl_csr_exccode_w == 6'h1); // estat_ecode is one cycle late
-   wire pis_exception = exception & (ecl_csr_exccode_w == 6'h2); // estat_ecode is one cycle late
-   wire pif_exception = exception & (ecl_csr_exccode_w == 6'h3); // estat_ecode is one cycle late
-   wire pme_exception = exception & (ecl_csr_exccode_w == 6'h4); // estat_ecode is one cycle late
-   wire ppi_exception = exception & (ecl_csr_exccode_w == 6'h7); // estat_ecode is one cycle late
+   wire pil_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h1); // estat_ecode is one cycle late
+   wire pis_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h2); // estat_ecode is one cycle late
+   wire pif_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h3); // estat_ecode is one cycle late
+   wire pme_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h4); // estat_ecode is one cycle late
+   wire ppi_exception_w = exu_csr_except_w & (ecl_csr_exccode_w == 6'h7); // estat_ecode is one cycle late
 
    // CRMD.DA (bit[3]) and CRMD.PG (bit[4])
    // Reset: DA=1, PG=0 (direct mode)
-   // On tlb_exception: forced to DA=1, PG=0
+   // On tlb_exception_w: forced to DA=1, PG=0
    
    wire crmd_da;
    wire crmd_pg;
@@ -257,13 +257,13 @@ module c7bcsr (
    //                   ertn_tlbr_excep           ? 1'b0 :
    //                   csr_wdata[`CRMD_DA];
 
-   wire crmd_da_din = tlbr_exception            ? 1'b1 :
+   wire crmd_da_din = tlbr_exception_w          ? 1'b1 :
                       ertn_tlbr_excep           ? 1'b0 :
                       csr_wdata[`CRMD_DA];
 
    // Enable: write OR exception OR ERTN from TLB refill OR reset
-   //wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep | (~resetn);
-   wire crmd_da_en = crmd_da_wen | tlbr_exception | ertn_tlbr_excep;
+   //wire crmd_da_en = crmd_da_wen | tlbr_exception_w | ertn_tlbr_excep | (~resetn);
+   wire crmd_da_en = crmd_da_wen | tlbr_exception_w | ertn_tlbr_excep;
 
    //// da should be 1'b1 after reset
    //dffe_ns #(1) crmd_da_reg (
@@ -302,11 +302,11 @@ module c7bcsr (
    // - TLB refill exception -> 0
    // - ERTN from TLB refill -> 1
    // - normal write -> csr_wdata[PG]
-   wire crmd_pg_din = tlbr_exception            ? 1'b0 :
+   wire crmd_pg_din = tlbr_exception_w          ? 1'b0 :
                       ertn_tlbr_excep           ? 1'b1 :
                       csr_wdata[`CRMD_PG];
 
-   wire crmd_pg_en = crmd_pg_wen | tlbr_exception | ertn_tlbr_excep;
+   wire crmd_pg_en = crmd_pg_wen | tlbr_exception_w | ertn_tlbr_excep;
    
    dffrle_ns #(1) crmd_pg_reg (
        .din   (crmd_pg_din),
@@ -345,12 +345,12 @@ module c7bcsr (
       .dout (prmd_pie_nxt),
       .in0  (prmd_pie_wdata),
       .in1  (crmd_ie),
-      .sel  (exception));
+      .sel  (exu_csr_except_w));
    
    dffrle_ns #(1) prmd_pie_reg (
       .din   (prmd_pie_nxt),
       .rst_l (resetn),
-      .en    (prmd_pie_msk_wen | exception),
+      .en    (prmd_pie_msk_wen | exu_csr_except_w),
       .clk   (clk),
       .q     (prmd_pie));
       //.se(), .si(), .so());
@@ -366,12 +366,12 @@ module c7bcsr (
       .dout (prmd_pplv_nxt),
       .in0  (prmd_pplv_wdata),
       .in1  (crmd_plv),
-      .sel  (exception));
+      .sel  (exu_csr_except_w));
 
    dffrle_ns #(2) prmd_pplv_reg (
       .din   (prmd_pplv_nxt),
       .rst_l (resetn),
-      .en    (prmd_pplv_msk_wen | exception),
+      .en    (prmd_pplv_msk_wen | exu_csr_except_w),
       .clk   (clk),
       .q     (prmd_pplv));
       //.se(), .si(), .so());
@@ -406,13 +406,13 @@ module c7bcsr (
    // subsequent fetch. Since the fetch fails, the pipeline PC becomes zero;
    // capturing this exception would be incorrect and should be suppressed.
    //
-   assign era_exception_wen = exception & (|ifu_exu_pc_w);
+   assign era_exception_wen = exu_csr_except_w & (|ifu_exu_pc_w);
 
    dp_mux2es #(32) era_mux(
       .dout (era_nxt),
       .in0  (era_wdata),
       .in1  (ifu_exu_pc_w),
-      .sel  (exception));
+      .sel  (exu_csr_except_w));
 
    dffrle_ns #(32) era_reg (
       .din   (era_nxt),
@@ -444,12 +444,12 @@ module c7bcsr (
       .dout (badv_nxt),
       .in0  (badv_wdata),
       .in1  (ecl_csr_badv_w),
-      .sel  (exception));  // illinst does not set BADV, later consider this. code review 
+      .sel  (exu_csr_except_w));  // illinst does not set BADV, later consider this. code review 
 
    dffrle_ns #(32) badv_reg (
       .din   (badv_nxt),
       .rst_l (resetn),
-      .en    (badv_wen | exception),
+      .en    (badv_wen | exu_csr_except_w),
       .clk   (clk),
       .q     (badv));
       //.se(), .si(), .so());
@@ -643,18 +643,20 @@ module c7bcsr (
                             (dtlb_csr_tlbidx_e ? dtlb_csr_tlbehi_vppn : 19'b0) :
                             (itlb_csr_tlbidx_e ? itlb_csr_tlbehi_vppn : 19'b0);
    
-   wire tlbehi_exception_wr = tlbr_exception | pil_exception | pis_exception |
-                               pif_exception | pme_exception | ppi_exception;
+   wire tlbehi_exception_wr_w = tlbr_exception_w | pil_exception_w | pis_exception_w |
+                                 pif_exception_w | pme_exception_w | ppi_exception_w;
 
    // VPPN input: normal CSR write or TLBRD read (with invalid clearing)
    wire [18:0] tlbehi_vppn_in;
-   assign tlbehi_vppn_in = tlbehi_exception_wr ? badv[31:13] :
+   //assign tlbehi_vppn_in = tlbehi_exception_wr_w ? badv[31:13] : 
+   //// badv not registered yet
+   assign tlbehi_vppn_in = tlbehi_exception_wr_w ? ecl_csr_badv_w[31:13] :
                            tlbrd_vld_e ? tlbrd_vppn_data :
                            ((tlbehi_vppn & ~csr_mask[`TLBEHI_VPPN]) |
                             (csr_wdata[`TLBEHI_VPPN] & csr_mask[`TLBEHI_VPPN]));
 
    // Write enable: normal CSR write OR TLBRD instruction
-   wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e | tlbehi_exception_wr;
+   wire tlbehi_vppn_en = tlbehi_vppn_wen | tlbrd_vld_e | tlbehi_exception_wr_w;
    
    dffrle_ns #(19) tlbehi_vppn_reg (
        .din   (tlbehi_vppn_in),
@@ -1523,7 +1525,7 @@ module c7bcsr (
    dffrle_ns #(6) estat_ecode_reg (
       .din   (ecl_csr_exccode_w),
       .rst_l (resetn),
-      .en    (exception),             // interrupt ecode is 0, handled in ecl
+      .en    (exu_csr_except_w),             // interrupt ecode is 0, handled in ecl
       .clk   (clk),
       .q     (estat_ecode));
       //.se(), .si(), .so());
@@ -1536,7 +1538,7 @@ module c7bcsr (
    dffrle_ns #(9) estat_esubcode_reg (
       .din   (ecl_csr_excsubcode_w),
       .rst_l (resetn),
-      .en    (exception), 
+      .en    (exu_csr_except_w), 
       .clk   (clk),
       .q     (estat_esubcode));
       //.se(), .si(), .so());
