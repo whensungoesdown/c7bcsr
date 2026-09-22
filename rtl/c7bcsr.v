@@ -110,7 +110,9 @@ module c7bcsr (
    input  [1:0]                   dtlb_csr_tlbelo1_mat,
    input  [1:0]                   dtlb_csr_tlbelo1_plv,
    input  [19:0]                  dtlb_csr_tlbelo1_ppn,
-   input  [9:0]                   dtlb_csr_asid_asid
+   input  [9:0]                   dtlb_csr_asid_asid,
+
+   input                          exu_csr_last_inst_ertn
    );
 
 
@@ -406,12 +408,31 @@ module c7bcsr (
    // subsequent fetch. Since the fetch fails, the pipeline PC becomes zero;
    // capturing this exception would be incorrect and should be suppressed.
    //
-   assign era_exception_wen = exu_csr_except_w & (|ifu_exu_pc_w);
+   //assign era_exception_wen = exu_csr_except_w & (|ifu_exu_pc_w);
+   assign era_exception_wen = exu_csr_except_w & ~exu_csr_last_inst_ertn;
+
+   // the exc_vld_e signal need to be passed along vld_e
+   // to let the exu know about the exception, there is a fake vld_e which
+   // brings pc_e as 0x00000000.
+   // then ifu_exu_pc_w becomes 0x0 when exu_csr_except_w becomes 1
+   //
+   // TO FIX this, exc_vld_e should come alone.
+   // workaround for now: pre-record the ifu_exu_pc_w, use this one in this
+   // situation
+   
+   wire [31:0] early_pc_w;
+
+   dffrl_ns #(32) early_pc_w_reg (
+      .din   (ifu_exu_pc_w),
+      .rst_l (resetn),
+      .clk   (clk),
+      .q     (early_pc_w));
 
    dp_mux2es #(32) era_mux(
       .dout (era_nxt),
       .in0  (era_wdata),
-      .in1  (ifu_exu_pc_w),
+      //.in1  (ifu_exu_pc_w),
+      .in1  ((|ifu_exu_pc_w) ? ifu_exu_pc_w : early_pc_w),
       .sel  (exu_csr_except_w));
 
    dffrle_ns #(32) era_reg (
