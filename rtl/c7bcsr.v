@@ -422,9 +422,10 @@ module c7bcsr (
    
    wire [31:0] early_pc_w;
 
-   dffrl_ns #(32) early_pc_w_reg (
+   dffrle_ns #(32) early_pc_w_reg (
       .din   (ifu_exu_pc_w),
       .rst_l (resetn),
+      .en    (|ifu_exu_pc_w),  // record a valid one, not all 0s
       .clk   (clk),
       .q     (early_pc_w));
 
