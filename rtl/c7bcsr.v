@@ -45,6 +45,7 @@ module c7bcsr (
    output                         csr_ifu_ic_en, 
    output                         csr_ifu_ic_en_pls,
    output                         csr_ecl_timer_intr,
+   output [12:0]                  csr_ecfg_lie,
 
    input                          ext_intr_sync,
 
@@ -1502,6 +1503,47 @@ module c7bcsr (
    assign csr_ecl_timer_intr = ticlr_clr;
 
 
+   //
+   // ECFG 0x4
+   //
+   // LIE[12:0] enables each interrupt source, bit n masks ESTAT.IS bit n:
+   //   bit 3  TI    timer
+   //   bit 4  HWI0  external interrupt (SoC2 UART)
+   // The other bits are stored but have no source. ESTAT.IS still shows
+   // pending interrupts whether they are enabled or not; the mask is
+   // applied in c7bexu before pic. VS[18:16] is not implemented, reads 0.
+   //
+   // Reset value: the LA32R manual specifies 0. TI and HWI0 are enabled
+   // at reset instead, so bare-metal programs and tests that never write
+   // ECFG keep working. Linux writes ECFG in arch_init_irq().
+   //
+   localparam ECFG_LIE_RESET = 13'h0018;
+
+   wire [31:0]        ecfg;
+   wire               ecfg_wen;
+   wire [12:0]        ecfg_lie;
+   wire [12:0]        ecfg_lie_nxt;
+   wire [12:0]        ecfg_lie_x;
+
+   assign ecfg_wen = (csr_waddr == `LCSR_ECTL) && csr_wen;
+   assign ecfg_lie_nxt = (ecfg_lie & (~csr_mask[`LSOC1K_ECTL_LIE])) |
+                         (csr_wdata[`LSOC1K_ECTL_LIE] & csr_mask[`LSOC1K_ECTL_LIE]);
+
+   // stored XOR ECFG_LIE_RESET, so a reset-to-0 flop gives the reset value
+   dffrle_ns #(13) ecfg_lie_reg (
+      .din   (ecfg_lie_nxt ^ ECFG_LIE_RESET),
+      .rst_l (resetn),
+      .en    (ecfg_wen),
+      .clk   (clk),
+      .q     (ecfg_lie_x));
+
+   assign ecfg_lie = ecfg_lie_x ^ ECFG_LIE_RESET;
+
+   assign ecfg = {19'b0, ecfg_lie};
+
+   assign csr_ecfg_lie = ecfg_lie;
+
+
 
    //
    // ESTAT 0x5
@@ -1837,6 +1879,7 @@ module c7bcsr (
 
    assign csr_reg_rdata = {32{csr_raddr == `LCSR_CRMD}}     & crmd   |
                           {32{csr_raddr == `LCSR_PRMD}}     & prmd   |
+                          {32{csr_raddr == `LCSR_ECTL}}     & ecfg   |
                           {32{csr_raddr == `LCSR_ESTAT}}    & estat  |
                           {32{csr_raddr == `LCSR_EPC}}      & era    |
                           {32{csr_raddr == `LCSR_BADV}}     & badv   |

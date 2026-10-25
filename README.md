@@ -93,6 +93,7 @@ value is 0 unless stated.
 |---|---|---|---|---|
 | 0x0 | CRMD | PLV[1:0], IE[2], DA[3], PG[4] | 0x8 (DA=1, `c7bcsr.v:279`) | PLV/IE are loaded with `csr_wdata` when any mask bit of the field is set; the 2-bit PLV has no per-bit merge (`c7bcsr.v:189,195`). DA/PG: per-bit mask. Exception: PLV=0, IE=0. ERTN: PLV/IE from PRMD. TLBR: DA=1, PG=0. ERTN in refill context: DA=0, PG=1. DATF/DATM/WE read 0. |
 | 0x1 | PRMD | PPLV[1:0], PIE[2] | 0 | Loaded with `csr_wdata` when the field mask is non-zero (`c7bcsr.v:342-376`). Exception: PPLV<=CRMD.PLV, PIE<=CRMD.IE. No PWE. |
+| 0x4 | ECFG | LIE[12:0] | LIE = 0x18 | Masked write. LIE bit n enables ESTAT.IS bit n: bit 3 timer, bit 4 external interrupt. Exported as `csr_ecfg_lie` and applied in `c7bexu` before `pic`. Reset enables TI and HWI0 (the LA32R manual specifies 0) so software that never writes ECFG still gets interrupts. VS[18:16] reads 0. |
 | 0x5 | ESTAT | SIS[1:0], IS[12:2], Ecode[21:16], EsubCode[30:22] | 0 | Only SIS is writable. IS is read-only. Ecode/EsubCode are loaded on every exception (`c7bcsr.v:1547-1565`), not changed by ERTN. |
 | 0x6 | ERA | [31:0] | 0 | Masked write. Loaded on exception (see ERA workaround). |
 | 0x7 | BADV | [31:0] | 0 | Masked write. Loaded with `ecl_csr_badv_w` on every exception, including ones that do not define BADV (`c7bcsr.v:469`). |
@@ -116,8 +117,7 @@ value is 0 unless stated.
 | 0x180 | DMW0 | PLV0[0], PLV3[3], MAT[5:4], PSEG[27:25], VSEG[31:29] | 0 | Masked write per field. Only PSEG/VSEG are exported. |
 | 0x181 | DMW1 | as DMW0 | 0 | As DMW0. |
 
-Not implemented (read 0, write ignored): EUEN (0x2), ECFG (0x4; there is no
-LIE mask, interrupts are gated by CRMD.IE only, `c7bexu.v:298-299`), CPUID
+Not implemented (read 0, write ignored): EUEN (0x2), CPUID
 (0x20), TID (0x40), CNTC (0x43), TLBRBADV/TLBRERA/TLBRSAVE/TLBRELO*/TLBREHI/
 TLBRPRMD (0x89-0x8F), and the other addresses in `csr_defs.v` not listed
 above.
@@ -270,7 +270,7 @@ En=1.
 The pending bit `ticlr_clr` (`c7bcsr.v:1489-1497`) is set by `intr` and
 cleared by a TICLR write with bit 0 = 1; set wins if both happen in one
 cycle. It is ESTAT.IS TI and drives `csr_ecl_timer_intr` without IE gating
-(`c7bcsr.v:1502`). In `c7bexu`, `csr_timer_intr & csr_crmd_ie` goes to the
+(`c7bcsr.v:1502`). In `c7bexu`, `csr_timer_intr & csr_crmd_ie & csr_ecfg_lie[3]` goes to the
 `pic`, which raises `intr_pulse` while a valid instruction is in D; that
 instruction is then sent down as an exception with code 0x00
 (`c7bexu.v:1004,1045-1051`, `pic.v:52-71`). The `pic` does not trigger again
