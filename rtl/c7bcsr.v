@@ -30,8 +30,8 @@ module c7bcsr (
    input  [8:0]                   ecl_csr_excsubcode_w, 
    input  [31:0]                  ifu_exu_pc_w,
    input                          ecl_csr_ertn_w,
-   input                          lsu_csr_llb_set,
-   input                          lsu_csr_llb_clr,
+   input                          lsu_csr_llb_set_e,
+   input                          lsu_csr_llb_clr_e,
 
    output                         csr_lsu_llb,
    output                         csr_ecl_crmd_ie,
@@ -1317,11 +1317,11 @@ module c7bcsr (
 
    wire llbctl_wcllb_msk_wen = csr_mask[`LLBCTL_WCLLB] && llbctl_wen;
 
-   wire rollb_clr = lsu_csr_llb_clr ||
+   wire rollb_clr = lsu_csr_llb_clr_e ||
                    (llbctl_wcllb_msk_wen && csr_wdata[`LLBCTL_WCLLB]) ||
                    (ecl_csr_ertn_w && !llbctl_klo);
 
-   wire rollb_set = lsu_csr_llb_set;
+   wire rollb_set = lsu_csr_llb_set_e;
 
    assign llbctl_rollb_nxt = rollb_set ? 1'b1 :
                           (rollb_clr ? 1'b0 : llbctl_rollb);

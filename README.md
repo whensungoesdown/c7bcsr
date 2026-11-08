@@ -315,8 +315,8 @@ counter ID is returned.
 
 | Event | ROLLB | KLO |
 |---|---|---|
-| `lsu_csr_llb_set` | 1 (highest priority) | - |
-| `lsu_csr_llb_clr` | 0 | - |
+| `lsu_csr_llb_set_e` | 1 (highest priority) | - |
+| `lsu_csr_llb_clr_e` | 0 | - |
 | write WCLLB = 1 | 0 | - |
 | ERTN, KLO = 0 | 0 | - |
 | ERTN, KLO = 1 | kept | 0 (over a KLO write) |
@@ -358,7 +358,7 @@ LA32R places HWI0 at ESTAT[2] and TI at ESTAT[11]; this RTL uses [4] and
 | `ifu_exu_pc_w` | in | PC for ERA (`pc_w`) |
 | `ecl_csr_ertn_w` | in | ERTN strobe (`ertn_vld_w`) |
 | `exu_csr_last_inst_ertn` | in | Suppress ERA update right after ERTN |
-| `lsu_csr_llb_set` / `lsu_csr_llb_clr` / `csr_lsu_llb` | in / out | LL/SC bit |
+| `lsu_csr_llb_set_e` / `lsu_csr_llb_clr_e` / `csr_lsu_llb` | in / out | LL/SC bit |
 | `csr_ecl_crmd_ie` | out | CRMD.IE, interrupt gating |
 | `csr_crmd_plv` / `csr_crmd_da` / `csr_crmd_pg` | out | Privilege level and translation mode |
 | `csr_dmw{0,1}_pseg` / `csr_dmw{0,1}_vseg` | out | DMW segments |
